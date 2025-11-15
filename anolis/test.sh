@@ -156,8 +156,8 @@ test_anck_rpm_build() {
   done
 
   if [ -n "$missing_packages" ]; then
-    echo "Installing missing packages:$missing_packages"
-    sudo yum install -y $missing_packages >> "${LOGS_DIR}/anck_rpm_build.log" 2>&1 || true
+    echo "  → Installing missing packages:$missing_packages" >> "${LOGS_DIR}/anck_rpm_build.log"
+    echo "${HOST_USER_PWD}" | sudo -S yum install -y $missing_packages >> "${LOGS_DIR}/anck_rpm_build.log" 2>&1 || true
   fi
 
   # Set build environment variables
@@ -189,14 +189,15 @@ test_anck_rpm_build() {
 
   # Install spec dependencies only once
   if [ ! -f "${outputdir}/.deps_installed" ]; then
-    sudo yum-builddep -y output/kernel.spec >> "${LOGS_DIR}/anck_rpm_build.log" 2>&1 || true
+    echo "  → Installing build dependencies..." >> "${LOGS_DIR}/anck_rpm_build.log"
+    echo "${HOST_USER_PWD}" | sudo -S yum-builddep -y output/kernel.spec >> "${LOGS_DIR}/anck_rpm_build.log" 2>&1 || true
     touch "${outputdir}/.deps_installed"
   fi
 
   # Set ulimit and build
   ulimit -n 65535
 
-  echo "Building ANCK RPMs..."
+  echo "  → Building ANCK RPMs..."
   if DIST=".an23" \
      DIST_BUILD_NUMBER=${BUILD_NUMBER} \
      DIST_OUTPUT=${outputdir} \
@@ -205,11 +206,6 @@ test_anck_rpm_build() {
      DIST_BUILD_EXTRA=${BUILD_EXTRA} \
      make dist-rpms RPMBUILDOPTS="--define '%_smp_mflags -j16'" \
      >> "${LOGS_DIR}/anck_rpm_build.log" 2>&1; then
-
-    # Print RPM package location
-    echo ""
-    echo -e "${GREEN}RPM Build Successful!${NC}"
-    echo -e "${BLUE}Generated package locations:${NC}"
 
     local rpm_dir="${outputdir}/rpmbuild/RPMS"
 
@@ -228,8 +224,150 @@ test_anck_rpm_build() {
 
 test_boot_kernel_rpm() {
   echo -e "${BLUE}Test: boot_kernel_rpm${NC}"
-  local rpms_dir="${LINUX_SRC_PATH}/anolis/outputs/rpmbuild/RPMS"
-  skip "boot_kernel_rpm" "Install the RPMs manually from ${rpms_dir}."
+
+  local rpms_dir="${LINUX_SRC_PATH}/anolis/outputs/rpmbuild/RPMS/x86_64"
+  local boot_log="${LOGS_DIR}/boot_kernel_rpm.log"
+
+  # Check if RPMs exist
+  if [ ! -d "${rpms_dir}" ]; then
+    fail "boot_kernel_rpm" "RPMs directory not found: ${rpms_dir}"
+    echo ""
+    return
+  fi
+
+  # Find kernel RPM (not debuginfo, not devel, not headers)
+  local kernel_rpm=$(find "${rpms_dir}" -name "kernel-*.rpm" ! -name "*debuginfo*" ! -name "*devel*" ! -name "*headers*" -type f | head -n 1)
+
+  if [ -z "${kernel_rpm}" ]; then
+    fail "boot_kernel_rpm" "Kernel RPM not found in ${rpms_dir}"
+    echo ""
+    return
+  fi
+
+  echo "  → Found kernel RPM: $(basename ${kernel_rpm})" >> "${boot_log}"
+
+  # Check VM connectivity
+  echo "  → Checking VM connectivity (${VM_IP})..." >> "${boot_log}"
+  if ! ping -c 2 "${VM_IP}" >> "${boot_log}" 2>&1; then
+    fail "boot_kernel_rpm" "VM ${VM_IP} is not reachable"
+    echo ""
+    return
+  fi
+  echo "  → VM is reachable" >> "${boot_log}"
+
+  # Install sshpass if not available (for password authentication)
+  if ! command -v sshpass &> /dev/null; then
+    echo "  → Installing sshpass..." >> "${boot_log}"
+    echo "${HOST_USER_PWD}" | sudo -S yum install -y sshpass >> "${boot_log}" 2>&1 || {
+      fail "boot_kernel_rpm" "Failed to install sshpass"
+      echo ""
+      return
+    }
+  fi
+
+  # Copy kernel RPM to VM
+  echo "  → Copying kernel RPM to VM..." >> "${boot_log}"
+  if ! sshpass -p "${VM_ROOT_PWD}" scp -o StrictHostKeyChecking=no "${kernel_rpm}" root@"${VM_IP}":/tmp/ >> "${boot_log}" 2>&1; then
+    fail "boot_kernel_rpm" "Failed to copy RPM to VM"
+    echo ""
+    return
+  fi
+  echo "  → RPM copied successfully" >> "${boot_log}"
+
+  local rpm_name=$(basename "${kernel_rpm}")
+
+  # Install kernel RPM on VM
+  echo "  → Installing kernel RPM on VM..." >> "${boot_log}"
+  if ! sshpass -p "${VM_ROOT_PWD}" ssh -o StrictHostKeyChecking=no root@"${VM_IP}" "rpm -ivh --force /tmp/${rpm_name}" >> "${boot_log}" 2>&1; then
+    fail "boot_kernel_rpm" "Failed to install kernel RPM"
+    echo ""
+    return
+  fi
+  echo "  → Kernel installed successfully" >> "${boot_log}"
+
+  # Extract kernel version from RPM name
+  local kernel_version=$(echo "${rpm_name}" | sed 's/kernel-//' | sed 's/.rpm$//')
+  local vmlinuz_path="/boot/vmlinuz-${kernel_version}"
+  echo "  → Expected kernel version: ${kernel_version}" >> "${boot_log}"
+  echo "  → Expected vmlinuz path: ${vmlinuz_path}" >> "${boot_log}"
+
+  # Verify kernel was installed
+  echo "  → Verifying kernel installation..." >> "${boot_log}"
+  if ! sshpass -p "${VM_ROOT_PWD}" ssh -o StrictHostKeyChecking=no root@"${VM_IP}" "test -f ${vmlinuz_path}" >> "${boot_log}" 2>&1; then
+    fail "boot_kernel_rpm" "Kernel image not found at ${vmlinuz_path}"
+    echo ""
+    return
+  fi
+
+  # List all available kernels
+  echo "  → Available kernels before setting default:" >> "${boot_log}"
+  sshpass -p "${VM_ROOT_PWD}" ssh -o StrictHostKeyChecking=no root@"${VM_IP}" "grubby --info ALL | grep -E '^kernel='" >> "${boot_log}" 2>&1
+
+  # Set new kernel as default using grubby
+  echo "  → Setting new kernel as default boot option using grubby..." >> "${boot_log}"
+  if ! sshpass -p "${VM_ROOT_PWD}" ssh -o StrictHostKeyChecking=no root@"${VM_IP}" "grubby --set-default=${vmlinuz_path}" >> "${boot_log}" 2>&1; then
+    fail "boot_kernel_rpm" "Failed to set default kernel with grubby"
+    echo ""
+    return
+  fi
+
+  # Verify default kernel was set
+  echo "  → Verifying default kernel setting..." >> "${boot_log}"
+  local default_kernel=$(sshpass -p "${VM_ROOT_PWD}" ssh -o StrictHostKeyChecking=no root@"${VM_IP}" "grubby --default-kernel" 2>> "${boot_log}")
+  echo "  → Default kernel set to: ${default_kernel}" >> "${boot_log}"
+
+  if [[ "${default_kernel}" != "${vmlinuz_path}" ]]; then
+    fail "boot_kernel_rpm" "Failed to set default kernel. Expected: ${vmlinuz_path}, Got: ${default_kernel}"
+    echo ""
+    return
+  fi
+
+  # Reboot VM
+  echo "  → Rebooting VM..." >> "${boot_log}"
+  sshpass -p "${VM_ROOT_PWD}" ssh -o StrictHostKeyChecking=no root@"${VM_IP}" "reboot" >> "${boot_log}" 2>&1 || true
+
+  # Wait for VM to go down
+  echo "  → Waiting for VM to shutdown..." >> "${boot_log}"
+  sleep 10
+
+  # Wait for VM to come back up (max 5 minutes)
+  echo "  → Waiting for VM to boot up (max 5 minutes)..." >> "${boot_log}"
+  local wait_count=0
+  local max_wait=60  # 60 * 5 seconds = 5 minutes
+
+  while [ $wait_count -lt $max_wait ]; do
+    if ping -c 1 -W 1 "${VM_IP}" >> "${boot_log}" 2>&1; then
+      sleep 10  # Wait a bit more for SSH to be ready
+      if sshpass -p "${VM_ROOT_PWD}" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@"${VM_IP}" "echo 'VM is up'" >> "${boot_log}" 2>&1; then
+        echo "  → VM booted successfully" >> "${boot_log}"
+        break
+      fi
+    fi
+    sleep 5
+    wait_count=$((wait_count + 1))
+  done
+
+  if [ $wait_count -ge $max_wait ]; then
+    fail "boot_kernel_rpm" "VM did not boot within 5 minutes"
+    echo ""
+    return
+  fi
+
+  # Check running kernel version
+  echo "  → Checking running kernel version..." >> "${boot_log}"
+  local running_kernel=$(sshpass -p "${VM_ROOT_PWD}" ssh -o StrictHostKeyChecking=no root@"${VM_IP}" "uname -r" 2>> "${boot_log}")
+
+  echo "  → Running kernel: ${running_kernel}" >> "${boot_log}"
+  echo "  → Expected kernel: ${kernel_version}" >> "${boot_log}"
+
+  # Verify if the installed kernel is running (exact match)
+  if [[ "${running_kernel}" == "${kernel_version}" ]]; then
+    echo -e "  ${GREEN}→${NC} VM booted with new kernel: ${running_kernel}"
+    pass "boot_kernel_rpm"
+  else
+    fail "boot_kernel_rpm" "VM booted with different kernel. Expected: ${kernel_version}, Got: ${running_kernel}"
+  fi
+
   echo ""
 }
 
@@ -247,16 +385,16 @@ test_check_kapi() {
   local PATCHLEVEL=$(grep "^PATCHLEVEL = " "${LINUX_SRC_PATH}/Makefile" | awk '{print $3}')
   local KABI_BRANCH="devel-${KERNEL_VERSION}.${PATCHLEVEL}"
 
-  echo "  → Setting up KAPI test environment..."
+  echo "  → Setting up KAPI test environment..." >> "$KAPI_LOG"
 
   # Create test directory if it doesn't exist
   mkdir -p "${KAPI_TEST_DIR}"
 
   # Check and clone kabi-dw tool if needed
   if [ -d "${KABI_DW_DIR}" ]; then
-    echo "  → kabi-dw repository already exists, skipping clone..."
+    echo "  → kabi-dw repository already exists, skipping clone..." >> "$KAPI_LOG"
   else
-    echo "  → Cloning kabi-dw repository..."
+    echo "  → Cloning kabi-dw repository..." >> "$KAPI_LOG"
     if ! git clone https://gitee.com/anolis/kabi-dw.git "${KABI_DW_DIR}" >> "${KAPI_LOG}" 2>&1; then
       fail "check_kapi" "Failed to clone kabi-dw repository"
       return
@@ -264,7 +402,7 @@ test_check_kapi() {
   fi
 
   # Build kabi-dw tool
-  echo "  → Building kabi-dw tool..."
+  echo "  → Building kabi-dw tool..." >> "$KAPI_LOG"
   cd "${KABI_DW_DIR}"
   if ! make >> "${KAPI_LOG}" 2>&1; then
     fail "check_kapi" "Failed to build kabi-dw tool"
@@ -273,18 +411,18 @@ test_check_kapi() {
 
   # Check and clone kabi-whitelist repository if needed
   if [ -d "${KABI_WHITELIST_DIR}" ]; then
-    echo "  → kabi-whitelist repository already exists, skipping clone..."
+    echo "  → kabi-whitelist repository already exists, skipping clone..." >> "$KAPI_LOG"
     # Verify it's on the correct branch
     cd "${KABI_WHITELIST_DIR}"
     CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
     if [ "${CURRENT_BRANCH}" != "${KABI_BRANCH}" ]; then
-      echo "  → Switching to branch ${KABI_BRANCH}..."
+      echo "  → Switching to branch ${KABI_BRANCH}..." >> "$KAPI_LOG"
       if ! git checkout "${KABI_BRANCH}" >> "${KAPI_LOG}" 2>&1; then
-        echo "  → Warning: Could not switch to branch ${KABI_BRANCH}, using ${CURRENT_BRANCH}"
+        echo "  → Warning: Could not switch to branch ${KABI_BRANCH}, using ${CURRENT_BRANCH}" >> "$KAPI_LOG"
       fi
     fi
   else
-    echo "  → Cloning kabi-whitelist repository (branch: ${KABI_BRANCH})..."
+    echo "  → Cloning kabi-whitelist repository (branch: ${KABI_BRANCH})..." >> "$KAPI_LOG"
     if ! git clone -b "${KABI_BRANCH}" https://gitee.com/anolis/kabi-whitelist.git "${KABI_WHITELIST_DIR}" >> "${KAPI_LOG}" 2>&1; then
       fail "check_kapi" "Failed to clone kabi-whitelist repository (branch ${KABI_BRANCH} may not exist)"
       return
@@ -292,7 +430,7 @@ test_check_kapi() {
   fi
 
   # Find vmlinux file in kernel source directory
-  echo "  → Locating vmlinux file..."
+  echo "  → Locating vmlinux file..." >> "$KAPI_LOG"
   local VMLINUX_PATH="${LINUX_SRC_PATH}/vmlinux"
 
   if [ ! -f "${VMLINUX_PATH}" ]; then
@@ -335,7 +473,7 @@ test_check_kapi() {
   cp "${VMLINUX_PATH}" "${TEST_VMLINUX}"
 
   # Generate current kernel ABI symbols
-  echo "  → Generating current kernel ABI symbols..."
+  echo "  → Generating current kernel ABI symbols..." >> "$KAPI_LOG"
   if ! "${KABI_DW_DIR}/kabi-dw" generate \
        -s "${WHITELIST_FILE}" \
        -o "${OUTPUT_FILE}" \
@@ -345,7 +483,7 @@ test_check_kapi() {
   fi
 
   # Compare current ABI with baseline
-  echo "  → Comparing ABI with baseline..."
+  echo "  → Comparing ABI with baseline..." >> "$KAPI_LOG"
   "${KABI_DW_DIR}/kabi-dw" compare \
      -k "${BASELINE_DIR}" \
      "${OUTPUT_FILE}" > "${COMPARE_LOG}" 2>&1

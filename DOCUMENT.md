@@ -2,23 +2,24 @@
 
 ## Overview
 
-The Patch Pre-Check CI Tool is an automated testing framework designed to validate Linux kernel patches across different distributions before submission. It streamlines patch validation by automating patch application, kernel builds, and distribution-specific testing.
+The Patch Pre-Check CI Tool is an automated testing framework designed to validate Linux kernel patches across different distributions before submission. It streamlines patch validation by automating patch application, kernel builds, distribution-specific testing.
 
 ## Features
 
-- **Multi-Distribution Support:** OpenAnolis and openEuler
 - **Automated Patch Processing:** Generates patches from git commits and applies them sequentially
 - **Incremental Build Testing:** Tests each patch individually to identify build-breaking changes early
-- **Comprehensive Test Suite:** Configuration validation, multiple build configurations, RPM packaging, and KAPI compatibility checks
+- **Comprehensive Test Suite:** Configuration validation, multiple build configurations,distribution-specific testing
 - **Smart Configuration:** Interactive wizard with sensible defaults
+- **Password Management:** Secure storage of host and VM credentials for unattended testing
 - **Clean Workflow:** Automatic git state management with rollback
+- **VM Boot Verification:** Automated kernel installation, boot, and version verification on remote VMs
 
 ## Supported Distributions
 
-| Distribution | Target Kernel         | Kernel Versions     | Architectures  |
-|--------------|-----------------------|---------------------|----------------|
-| OpenAnolis   | ANCK (Cloud Kernel)   | Multiple LTS        | x86_64, aarch64|
-| openEuler    | openEuler Kernel      | Multiple LTS        | x86_64, aarch64|
+| Distribution | Target Kernel         | Kernel Versions     | Architectures  | Boot Testing |
+|--------------|-----------------------|---------------------|----------------|--------------|
+| OpenAnolis   | ANCK (Cloud Kernel)   | Multiple LTS        | x86_64, aarch64| ✅ Full      |
+| openEuler    | openEuler Kernel      | Multiple LTS        | x86_64, aarch64| 🚧 Planned   |
 
 ## Installation & Setup
 
@@ -30,6 +31,11 @@ sudo yum install -y git make gcc flex bison elfutils-libelf-devel openssl-devel 
 OpenAnolis extra requirements
 ```bash
 sudo yum install -y audit-libs-devel binutils-devel libbpf-devel libcap-ng-devel libnl3-devel newt-devel pciutils-devel xmlto yum-utils
+```
+
+For VM boot testing:
+```bash
+sudo yum install -y sshpass
 ```
 
 ### Getting Started
@@ -60,7 +66,7 @@ make test # Execute all tests
 
 2. **Distribution-Specific Configuration**
 
-   **OpenAnolis:**  
+   **OpenAnolis:**
      - Linux source code path
      - Signed-off-by name/email
      - Anolis Bugzilla ID (ANBZ)
@@ -78,11 +84,23 @@ make test # Execute all tests
      | build_anolis_debug_defconfig| Build with debug config               | Enable debugging features                  |
      | anck_rpm_build              | Build ANCK RPM packages               | RPMs for installation                      |
      | check_kapi                  | Check KAPI compatibility              | ABI compatibility checks                   |
-     | boot_kernel_rpm             | Boot test                             | Manual installation/run instructions       |
+     | boot_kernel_rpm             | **Automated VM boot test**            | **Install, boot, and verify kernel on VM** |
 
      Enable: individual (e.g. 1,3,5), all, or none.
 
-   **openEuler:**  
+   **Password Configuration** (when RPM build or boot test enabled)
+
+   **Host Configuration:**
+   - Host sudo password (for installing build dependencies)
+   - Stored securely for unattended testing
+   - Used for: package installation, yum-builddep
+
+   **VM Configuration** (when boot test enabled):
+   - VM IP address (bridge or local network)
+   - VM root password (for SSH/SCP access)
+   - Used for: RPM transfer, installation, reboot, verification
+
+   **openEuler:**
    Similar options, tailored for openEuler kernel configuration, builds, packaging.
 
 ## Make Targets
@@ -98,6 +116,19 @@ make test # Execute all tests
 | mrproper      | Complete cleanup                       |
 | help          | Display usage info                     |
 
+## Security Considerations
+
+### Password Storage
+- Passwords are stored in plaintext in `.configure` file
+- File permissions should be restricted: `chmod 600 anolis/.configure`
+- **Do not commit `.configure` to version control**
+- Consider using SSH keys for production environments
+
+### SSH Configuration
+- Currently uses `StrictHostKeyChecking=no` for automation
+- For production, configure proper SSH key authentication
+- Use known_hosts verification in secure environments
+
 ## Contributing
 
 To add a new distribution:
@@ -105,12 +136,14 @@ To add a new distribution:
 - Create: `newdistro/` directory
 - Add: `config.sh`, `build.sh`, `test.sh`, `Makefile`
 - Update: main `Makefile` with new targets
-- Thoroughly test
+- Implement boot testing if supported
+- Thoroughly test all features
 - Submit pull request
 
 ## License
 
 GPL-3.0 licence
+
 This tool is provided as-is for kernel development and testing purposes.
 
 ## Support
@@ -118,6 +151,6 @@ This tool is provided as-is for kernel development and testing purposes.
 - [Repository](https://github.com/SelamHemanth/patch-precheck-ci)
 - Issues via GitHub
 
-**OpenAnolis has full support. For openEuler, support is currently being implemented.**
+---
 
-
+**Note:** OpenAnolis has full support including automated VM boot testing. For openEuler, support is currently being implemented.

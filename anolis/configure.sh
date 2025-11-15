@@ -109,6 +109,26 @@ else
   done
 fi
 
+# VM Configuration for Boot Test
+if [[ "$TEST_BOOT_KERNEL" == "yes" ]]; then
+  echo ""
+  echo "=== VM Boot Test Configuration ==="
+  read -r -p "VM IP address: " vm_ip
+  VM_IP="${vm_ip}"
+  read -r -s -p "VM root password: " vm_root_pwd
+  VM_ROOT_PWD="${vm_root_pwd}"
+  echo ""
+fi
+
+# Host sudo password (for RPM build dependencies)
+if [[ "$TEST_RPM_BUILD" == "yes" ]]; then
+  echo ""
+  echo "=== Host Configuration ==="
+  read -r -s -p "Host sudo password (for installing dependencies): " host_user_pwd
+  HOST_USER_PWD="${host_user_pwd}"
+  echo ""
+fi
+
 # Write configuration file
 cat > "$CONFIG_FILE" <<EOF
 # OpenAnolis Configuration
@@ -134,6 +154,13 @@ TEST_BUILD_DEBUG="${TEST_BUILD_DEBUG}"
 TEST_RPM_BUILD="${TEST_RPM_BUILD}"
 TEST_CHECK_KAPI="${TEST_CHECK_KAPI}"
 TEST_BOOT_KERNEL="${TEST_BOOT_KERNEL}"
+
+# Host Configuration
+HOST_USER_PWD='${HOST_USER_PWD}'
+
+# VM Configuration
+VM_IP="${VM_IP}"
+VM_ROOT_PWD='${VM_ROOT_PWD}'
 EOF
 
 echo ""
