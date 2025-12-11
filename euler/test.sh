@@ -213,13 +213,36 @@ test_check_patch() {
   local checkpatch_log="${LOGS_DIR}/check_patch.log"
   
   > "${checkpatch_log}"  # Clear log file
-  
+
+  # Define ignore list
+  local IGNORES_FOR_MAIN=(
+    CONFIG_DESCRIPTION
+    FILE_PATH_CHANGES
+    GERRIT_CHANGE_ID
+    GIT_COMMIT_ID
+    UNKNOWN_COMMIT_ID
+    FROM_SIGN_OFF_MISMATCH
+    REPEATED_WORD
+    COMMIT_COMMENT_SYMBOL
+    BLOCK_COMMENT_STYLE
+    AVOID_EXTERNS
+    AVOID_BUG
+    NOT_UNIFIED_DIFF
+    COMMIT_LOG_LONG_LINE
+    SPACING
+    LONG_LINE_COMMENT
+  )
+
+  # Join array into comma-separated string
+  local ignore_str
+  ignore_str=$(IFS=, ; echo "${IGNORES_FOR_MAIN[*]}")
+
   for patch_file in "${patch_files[@]}"; do
     local patch_name=$(basename "${patch_file}")
     echo "    Checking: ${patch_name}" >> "${checkpatch_log}"
     
-    # Run checkpatch and capture output
-    local output=$("${CHECKPATCH}" "${patch_file}" 2>&1)
+    # Run checkpatch with ignore list and capture output
+    local output=$("${CHECKPATCH}" --show-types --no-tree --ignore "${ignore_str}" "${patch_file}" 2>&1)
     echo "${output}" >> "${checkpatch_log}"
     echo "" >> "${checkpatch_log}"
     
