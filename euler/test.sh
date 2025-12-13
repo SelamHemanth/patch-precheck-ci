@@ -27,6 +27,11 @@ PATCHES_DIR="${WORKDIR}/patches"
 LOGS_DIR="${WORKDIR}/logs"
 TEST_LOG="${LOGS_DIR}/test_results.log"
 
+# Export the variables so subshells can use them
+export HOST_USER_PWD
+export VM_IP
+export VM_ROOT_PWD
+
 # Colors
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -514,11 +519,22 @@ test_boot_kernel() {
   # Install sshpass if not available (for password authentication)
   if ! command -v sshpass &> /dev/null; then
     echo "  → Installing sshpass..." | tee -a "${boot_log}"
-    echo "${HOST_USER_PWD}" | sudo -S yum install -y sshpass >> "${boot_log}" 2>&1 || {
-      fail "boot_kernel" "Failed to install sshpass"
-      echo ""
-      return
-    }
+    if ! echo "${HOST_USER_PWD}" | sudo -S yum install -y sshpass >> "${boot_log}" 2>&1; then
+	    echo "  → yum install failed, trying manual build..." >> "${boot_log}"
+	    (
+	    cd /tmp || exit 1
+	    wget https://sourceforge.net/projects/sshpass/files/latest/download -O sshpass.tar.gz >> "${boot_log}" 2>&1
+	    tar -xzf sshpass.tar.gz >> "${boot_log}" 2>&1
+	    cd sshpass-* || exit 1
+	    ./configure >> "${boot_log}" 2>&1
+	    make >> "${boot_log}" 2>&1
+	    echo "${HOST_USER_PWD}" | sudo -S make install >> "${boot_log}" 2>&1
+    ) || {
+	    fail "boot_kernel_rpm" "Failed to install sshpass manually"
+		echo ""
+		return
+	}
+    fi
   fi
 
   # Copy kernel RPM to VM
