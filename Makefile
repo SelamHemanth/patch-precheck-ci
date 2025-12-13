@@ -4,7 +4,15 @@
 
 SHELL := /bin/bash
 .ONESHELL:
-.PHONY: help config build test clean reset distclean
+.PHONY: help config build test clean reset distclean update
+
+# Always update repo before any target
+update:
+	@git pull --rebase
+
+# Make every target depend on update
+MAKECMDGOALS ?= help
+$(MAKECMDGOALS): update
 
 # Configuration files (stored in main directory)
 DISTRO_CONFIG := .distro_config
