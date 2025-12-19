@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKDIR="$(dirname "$SCRIPT_DIR")"
 CONFIG_FILE="${SCRIPT_DIR}/.configure"
 TORVALDS_REPO="${WORKDIR}/.torvalds-linux"
+LOGS_DIR="${WORKDIR}/logs"
 
 # Colors
 GREEN='\033[0;32m'
@@ -14,6 +15,176 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
+
+fail() {
+	local stage="$1"
+	local msg="$2"
+	echo -e "${RED}[FAIL]${NC} ${stage}: ${msg}"
+}
+
+# Update only test configuration
+update_tests() {
+
+	# Load existing config if present
+	if [[ -f "${CONFIG_FILE}" ]]; then
+		# shellcheck disable=SC1090
+		source "${CONFIG_FILE}"
+	fi
+
+	# Default: disable all tests
+	RUN_TESTS="no"
+	TEST_CHECK_DEPENDENCY="no"
+	TEST_BUILD_ALLMOD="no"
+	TEST_CHECK_PATCH="no"
+	TEST_CHECK_FORMAT="no"
+	TEST_RPM_BUILD="no"
+	TEST_BOOT_KERNEL="no"
+
+	echo ""
+	echo "Available tests:"
+	echo "  1) check_dependency           - Check dependent commits"
+	echo "  2) build_allmod               - Build with allmodconfig"
+	echo "  3) check_patch                - Run checkpatch.pl validation"
+	echo "  4) check_format               - Check code formatting"
+	echo "  5) rpm_build                  - Build openEuler RPM packages"
+	echo "  6) boot_kernel                - Boot test (requires remote setup)"
+	echo ""
+
+	read -r -p "Select tests to run (comma-separated, 'all', or 'none') [all]: " test_selection
+	TEST_SELECTION="${test_selection:-all}"
+
+	BOOT_SELECTED="no"
+	RPM_BUILD_SELECTED="no"
+
+	if [ "$TEST_SELECTION" == "all" ]; then
+		RUN_TESTS="yes"
+		TEST_CHECK_DEPENDENCY="yes"
+		TEST_BUILD_ALLMOD="yes"
+		TEST_CHECK_PATCH="yes"
+		TEST_CHECK_FORMAT="yes"
+		TEST_RPM_BUILD="yes"
+		TEST_BOOT_KERNEL="yes"
+	elif [ "$TEST_SELECTION" == "none" ]; then
+		RUN_TESTS="no"
+	else
+		RUN_TESTS="yes"
+		IFS=',' read -ra SELECTED <<< "$TEST_SELECTION"
+		for test_num in "${SELECTED[@]}"; do
+			case "${test_num// /}" in
+				1) TEST_CHECK_DEPENDENCY="yes" ;;
+				2) TEST_BUILD_ALLMOD="yes" ;;
+				3) TEST_CHECK_PATCH="yes" ;;
+				4) TEST_CHECK_FORMAT="yes" ;;
+				5) TEST_RPM_BUILD="yes" ; RPM_BUILD_SELECTED="yes" ;;
+				6) TEST_BOOT_KERNEL="yes" ; BOOT_SELECTED="yes" ;;
+			esac
+		done
+	fi
+
+	# VM + Host config if boot test selected
+	VM_IP="${VM_IP:-""}"
+	VM_ROOT_PWD="${VM_ROOT_PWD:-""}"
+	HOST_USER_PWD="${HOST_USER_PWD:-""}"
+
+	rpms_dir="${LINUX_SRC_PATH}/anolis/outputs/rpmbuild/RPMS/x86_64"
+	boot_log="${LOGS_DIR}/boot_kernel_rpm.log"
+
+	# Boot test logic
+	if [[ "$BOOT_SELECTED" == "yes" || "$TEST_SELECTION" == "all" ]]; then
+		if [[ "$TEST_SELECTION" == "all" ]]; then
+			echo ""
+			echo "=== VM Boot Test Configuration ==="
+
+			# Always prompt when user selects all
+			read -r -p "VM IP address: " vm_ip
+			VM_IP="${vm_ip}"
+			read -r -s -p "VM root password: " vm_root_pwd
+			VM_ROOT_PWD="${vm_root_pwd}"
+			echo ""
+		else
+			# Only prompt if missing
+			if [[ -z "${VM_IP:-}" ]]; then
+				read -r -p "VM IP address: " vm_ip
+				VM_IP="${vm_ip}"
+			else
+				echo "Using existing VM IP: ${VM_IP}" >> "${boot_log}"
+			fi
+
+			if [[ -z "${VM_ROOT_PWD:-}" ]]; then
+				read -r -s -p "VM root password: " vm_root_pwd
+				VM_ROOT_PWD="${vm_root_pwd}"
+				echo ""
+			else
+				echo "Using existing VM root password (hidden)" >> "${boot_log}"
+			fi
+		fi
+
+		# RPM check only if explicitly selected 6,
+		# but skip if rpm_build (5) is also selected
+		if [[ "${BOOT_SELECTED:-}" == "yes" ]]; then
+			if [[ "${RPM_BUILD_SELECTED:-}" != "yes" ]]; then
+				# Only check RPMs if 6 was selected alone
+				rpms_dir="$HOME/rpmbuild/RPMS/x86_64"
+				boot_log="${LOGS_DIR}/boot_kernel_rpm.log"
+
+				if [ ! -d "${rpms_dir}" ]; then
+					fail "boot_kernel_rpm" "RPMs directory not found: ${rpms_dir}. Choose rpm_build test also."
+					exit 0   # graceful exit
+				fi
+				kernel_rpm=$(find "${rpms_dir}" -name "kernel-*.rpm" \
+					! -name "*debuginfo*" ! -name "*devel*" ! -name "*headers*" -type f | head -n 1)
+
+				if [ -z "${kernel_rpm}" ]; then
+					fail "boot_kernel_rpm" "Kernel RPM not found in ${rpms_dir}. Choose rpm_build test also."
+					exit 0   # graceful exit
+				fi
+
+				echo "→ Found kernel RPM: $(basename "${kernel_rpm}")" >> "${boot_log}"
+			else
+				echo "Skipping RPM check for boot_kernel because rpm_build is also selected." >> "${boot_log}"
+			fi
+		fi
+	fi
+
+	# Host config logic
+	if [[ "$RPM_BUILD_SELECTED" == "yes" || "$TEST_SELECTION" == "all" ]]; then
+		if [[ "$TEST_SELECTION" == "all" ]]; then
+			echo ""
+			echo "=== Host Configuration ==="
+			# Always prompt when user selects all
+			read -r -s -p "Host sudo password (for installing dependencies): " host_user_pwd
+			HOST_USER_PWD="${host_user_pwd}"
+			echo ""
+		else
+			# Only prompt if missing
+			if [[ -z "${HOST_USER_PWD:-}" ]]; then
+				read -r -s -p "Host sudo password (for installing dependencies): " host_user_pwd
+				HOST_USER_PWD="${host_user_pwd}"
+				echo ""
+			else
+				echo "Using existing Host sudo password (hidden)" >> "${boot_log}"
+			fi
+		fi
+	fi
+
+	# Update only test-related lines in .configure
+	sed -i "s|^RUN_TESTS=.*|RUN_TESTS=\"${RUN_TESTS}\"|" "${CONFIG_FILE}"
+	sed -i "s|^TEST_CHECK_DEPENDENCY=.*|TEST_CHECK_DEPENDENCY=\"${TEST_CHECK_DEPENDENCY}\"|" "${CONFIG_FILE}"
+	sed -i "s|^TEST_BUILD_ALLMOD=.*|TEST_BUILD_ALLMOD=\"${TEST_BUILD_ALLMOD}\"|" "${CONFIG_FILE}"
+	sed -i "s|^TEST_CHECK_PATCH=.*|TEST_CHECK_PATCH=\"${TEST_CHECK_PATCH}\"|" "${CONFIG_FILE}"
+	sed -i "s|^TEST_CHECK_FORMAT=.*|TEST_CHECK_FORMAT=\"${TEST_CHECK_FORMAT}\"|" "${CONFIG_FILE}"
+	sed -i "s|^TEST_RPM_BUILD=.*|TEST_RPM_BUILD=\"${TEST_RPM_BUILD}\"|" "${CONFIG_FILE}"
+	sed -i "s|^TEST_BOOT_KERNEL=.*|TEST_BOOT_KERNEL=\"${TEST_BOOT_KERNEL}\"|" "${CONFIG_FILE}"
+	sed -i "s|^HOST_USER_PWD=.*|HOST_USER_PWD='${HOST_USER_PWD}'|" "${CONFIG_FILE}"
+	sed -i "s|^VM_IP=.*|VM_IP=\"${VM_IP}\"|" "${CONFIG_FILE}"
+	sed -i "s|^VM_ROOT_PWD=.*|VM_ROOT_PWD='${VM_ROOT_PWD}'|" "${CONFIG_FILE}"
+	echo -e "${GREEN}Test configuration updated successfully.${NC}"
+}
+
+if [[ "${1:-}" == "--tests" ]]; then
+	update_tests
+	exit 0
+fi
 
 # Clone Torvalds repo if not exists
 if [ ! -d "$TORVALDS_REPO" ]; then

@@ -40,6 +40,7 @@ cd patch-precheck-ci
 * `make clean`      - Remove logs/ and outputs/
 * `make reset`      - Reset git repo to saved HEAD
 * `make distclean`  - Remove all artifacts and configs
+* `make update-tests` - Update test configuration only
 
 ---
 

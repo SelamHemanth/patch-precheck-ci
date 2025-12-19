@@ -4,7 +4,7 @@
 
 SHELL := /bin/bash
 .ONESHELL:
-.PHONY: help config build test clean reset distclean update
+.PHONY: help config build test clean reset distclean update-tests update
 
 # Always update repo before any target
 update:
@@ -61,6 +61,7 @@ help:
 	@echo "  make clean      - Remove logs/ and outputs/"
 	@echo "  make reset      - Reset git repo to saved HEAD"
 	@echo "  make distclean  - Remove all artifacts and configs"
+	@echo "  make update-tests - Update test configuration only"
 	@echo ""
 	@echo "Supported Distributions:"
 	@echo "  - OpenAnolis (anolis/)"
@@ -107,6 +108,16 @@ config:
 	echo ""; \
 	echo -e "$(BLUE)Running $$DISTRO configuration...$(NC)"; \
 	bash $$DISTRO_DIR/configure.sh
+
+# Update test configuration only
+update-tests: validate
+	@. $(DISTRO_CONFIG); \
+	if [ ! -f "$$DISTRO_DIR/configure.sh" ]; then \
+		echo -e "$(RED)Error: Configuration script not found: $$DISTRO_DIR/configure.sh$(NC)"; \
+		exit 1; \
+	fi; \
+	echo -e "$(BLUE)Updating $$DISTRO test configuration...$(NC)"; \
+	bash $$DISTRO_DIR/configure.sh --tests
 
 # Validate configuration exists
 validate:

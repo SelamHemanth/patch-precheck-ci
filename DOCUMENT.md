@@ -148,6 +148,7 @@ make test # Execute all tests
 | clean         | Remove logs/build outputs              |
 | reset         | Reset git to saved HEAD                |
 | distclean     | Remove all artifacts/config            |
+| update-tests  | Update test configuration only         |
 | help          | Display usage info                     |
 
 ## Security Considerations
