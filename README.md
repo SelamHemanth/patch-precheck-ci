@@ -27,23 +27,10 @@ This tool automates distribution detection, configuration, patch application, an
 
 A modern, responsive web interface is available for easier interaction with the tool.
 
-### Quick Start
-
-```bash
-cd patch-precheck-ci/web
-./start.sh
-```
-
-Access at: `http://your-server-ip:5000`
-
-### Features
-- 🎨 Modern purple gradient UI with real-time updates
-- ⚙️ Interactive configuration wizard
-- 🔨 Build progress tracking with live status
-- 🧪 Individual and batch test execution
-- 📊 Real-time progress bars and status indicators
-- 📝 Log viewer with popup modals
-- 🎯 One-click operations for all make commands
+* Access web dashboard at `http://server-ip:5000`
+* Configure, build, and test through the browser
+* Monitor progress in real-time
+* View logs with one click
 
 ---
 
@@ -59,6 +46,8 @@ git clone https://github.com/SelamHemanth/patch-precheck-ci.git
 cd patch-precheck-ci
 ```
 
+### Command Line Interface
+
 * `make config`             - Configure target distribution
 * `make build`              - Build kernel
 * `make test`               - Run distro-specific tests
@@ -70,6 +59,15 @@ cd patch-precheck-ci
 * `make distclean`          - Remove all artifacts and configs
 * `make update-tests`       - Update test configuration only
 
+### Service Management
+
+Run the web interface as a system service:
+
+* `sudo ./service.sh install`   - Install as systemd service
+* `sudo ./service.sh start`     - Start service
+* `sudo ./service.sh status`    - Check status
+* `sudo ./service.sh logs`      - View logs
+* `sudo ./service.sh stop`      - Stop service
 ---
 
 ## 📖 Documentation
