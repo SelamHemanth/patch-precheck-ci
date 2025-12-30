@@ -8,7 +8,7 @@ SHELL := /bin/bash
 
 # Always update repo before any target
 update:
-	@git pull --rebase >/dev/null 2>&1
+	@git pull --rebase >/dev/null 2>&1 || true
 
 # Make every target depend on update
 MAKECMDGOALS ?= help

@@ -63,7 +63,7 @@ if ! git rev-parse --git-dir >/dev/null 2>&1; then
 		echo -e "${RED}Please run manually: git config --global --add safe.directory ${LINUX_SRC_PATH}${NC}" >&2
 		exit 12
 	}
-	echo -e "${GREEN}Safe directory exception added successfully${NC}" >&
+	echo -e "${GREEN}Safe directory exception added successfully${NC}" >&2
 fi
 
 TOTAL_COMMITS="$(git rev-list --count HEAD 2>/dev/null || true)"
@@ -432,9 +432,9 @@ for pf in "${PATCH_LIST[@]}"; do
           kabi_summary+=( "${name}:KABI_FIX" )
         else
           # Check if next patch is KABI fix
-          local next_idx=${idx}
+          next_idx=${idx}
           if [ ${next_idx} -lt ${TOTAL_SELECTED} ]; then
-            local next_pf="${PATCH_LIST[$next_idx]}"
+            next_pf="${PATCH_LIST[$next_idx]}"
             if is_kabi_fix_patch "${next_pf}"; then
               echo -e "  KABI Check : ${name} : ${YELLOW}⚠ WARN (Next patch is KABI fix)${NC}"
               kabi_summary+=( "${name}:WARN_HAS_FIX" )

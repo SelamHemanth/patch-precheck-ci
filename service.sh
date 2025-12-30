@@ -7,6 +7,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 WEB_DIR="$PROJECT_ROOT/web"
+TORVALDS_REPO="${PROJECT_ROOT}/.torvalds-linux"
 SERVICE_NAME="patch-precheck-ci-web"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
@@ -168,6 +169,25 @@ EOF
     echo "  Python:       $PYTHON_PATH"
 }
 
+clone_torvalds() {
+	# Clone Torvalds repo if not exists
+	if [ ! -d "$TORVALDS_REPO" ]; then
+		echo -e "${BLUE}Cloning Torvalds Linux repository...${NC}"
+		git clone --bare https://github.com/torvalds/linux.git "$TORVALDS_REPO" 2>&1 | \
+			stdbuf -oL tr '\r' '\n' | \
+			grep -oP '\d+(?=%)' | \
+			awk '{printf "\rProgress: %d%%", $1; fflush()}' || \
+		git config --global --add safe.directory $TORVALDS_REPO
+		echo -e "\r${GREEN}Repository cloned successfully${NC}"
+		echo ""
+	else
+		echo -e "${GREEN}Torvalds repository already exists${NC}"
+		echo -e "${BLUE}Updating repository...${NC}"
+		(cd "$TORVALDS_REPO" && git fetch --all --tags 2>&1 | grep -v "^From" || true)
+		echo -e "${GREEN}Repository updated${NC}"
+	fi
+}
+
 install_service() {
     check_root "install"
     
@@ -258,7 +278,10 @@ start_service() {
         echo "Please run: sudo ./service.sh install"
         exit 1
     fi
-    
+
+    # clone torvalds linux repo
+    clone_torvalds
+
     systemctl start "$SERVICE_NAME"
     
     # Wait a moment for service to start
