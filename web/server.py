@@ -8,6 +8,7 @@ import os
 import subprocess
 import threading
 import uuid
+import signal
 from datetime import datetime
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -25,9 +26,29 @@ print(f"[INFO] Project root: {PROJECT_ROOT}")
 LOGS_DIR = os.path.join(PROJECT_ROOT, 'logs')
 os.makedirs(LOGS_DIR, exist_ok=True)
 
-# Job storage
+# Torvalds repository path
+TORVALDS_REPO = os.path.join(PROJECT_ROOT, '.torvalds-linux')
+
+# Job storage with process tracking
 jobs = {}
 job_lock = threading.Lock()
+job_processes = {}  # NEW: Store process objects for each job
+
+def clone_torvalds_repo_silent():
+    """Clone Torvalds repo silently if not exists"""
+    try:
+        if not os.path.exists(TORVALDS_REPO):
+            # Clone silently (suppress all output)
+            subprocess.run(
+                ['git', 'clone', '--bare', 'https://github.com/torvalds/linux.git', TORVALDS_REPO],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False
+            )
+        # If already exists, skip silently
+    except Exception:
+        # Silently ignore errors
+        pass
 
 def get_distro_config():
     """Read current distribution configuration"""
@@ -64,7 +85,7 @@ def get_test_log_file(test_name, distro):
             'rpm_build': 'rpm_build.log',
             'boot_kernel': 'boot_kernel.log'
         }
-    
+
     log_filename = log_map.get(test_name, f'{test_name}.log')
     return os.path.join(LOGS_DIR, log_filename)
 
@@ -73,9 +94,9 @@ def run_make_command(command, job_id):
     with job_lock:
         jobs[job_id]['status'] = 'running'
         jobs[job_id]['start_time'] = datetime.now().isoformat()
-    
+
     log_file = os.path.join(LOGS_DIR, f'{job_id}_command.log')
-    
+
     try:
         process = subprocess.Popen(
             command,
@@ -84,18 +105,28 @@ def run_make_command(command, job_id):
             stderr=subprocess.STDOUT,
             cwd=PROJECT_ROOT,
             universal_newlines=True,
-            bufsize=1
+            bufsize=1,
+            preexec_fn=os.setsid  # NEW: Create process group for proper cleanup
         )
-        
+
+        # NEW: Store process object
+        with job_lock:
+            job_processes[job_id] = process
+
         output_lines = []
         for line in process.stdout:
             output_lines.append(line)
             with open(log_file, 'a') as f:
                 f.write(line)
-        
+
         process.wait()
         exit_code = process.returncode
-        
+
+        # NEW: Remove process from tracking
+        with job_lock:
+            if job_id in job_processes:
+                del job_processes[job_id]
+
         # Find actual log file for tests
         actual_log = log_file
         config = get_distro_config()
@@ -106,22 +137,29 @@ def run_make_command(command, job_id):
                 test_name = command.split('anolis-test=')[1].strip()
             elif 'euler-test=' in command:
                 test_name = command.split('euler-test=')[1].strip()
-            
+
             if test_name and distro:
                 actual_log = get_test_log_file(test_name, distro)
-        
+
         with job_lock:
-            jobs[job_id]['status'] = 'completed' if exit_code == 0 else 'failed'
+            # Check if job was killed
+            if exit_code == -9 or exit_code == -15:
+                jobs[job_id]['status'] = 'killed'
+            else:
+                jobs[job_id]['status'] = 'completed' if exit_code == 0 else 'failed'
             jobs[job_id]['exit_code'] = exit_code
             jobs[job_id]['output'] = ''.join(output_lines)
             jobs[job_id]['end_time'] = datetime.now().isoformat()
             jobs[job_id]['log_file'] = actual_log
-            
+
     except Exception as e:
         with job_lock:
             jobs[job_id]['status'] = 'failed'
             jobs[job_id]['error'] = str(e)
             jobs[job_id]['end_time'] = datetime.now().isoformat()
+            # Remove process from tracking on error
+            if job_id in job_processes:
+                del job_processes[job_id]
 
 @app.route('/')
 def index():
@@ -150,7 +188,7 @@ def get_config_fields():
     distro = request.args.get('distro')
     if not distro or distro not in ['anolis', 'euler']:
         return jsonify({'error': 'Invalid distribution'}), 400
-    
+
     if distro == 'anolis':
         fields = {
             'general': [
@@ -193,7 +231,7 @@ def get_config_fields():
                 {'name': 'HOST_USER_PWD', 'label': 'Host sudo password', 'type': 'password', 'required': True}
             ]
         }
-    
+
     return jsonify({'distro': distro, 'fields': fields})
 
 @app.route('/api/config', methods=['GET'])
@@ -202,12 +240,12 @@ def get_current_config():
     config = get_distro_config()
     if not config:
         return jsonify({'error': 'Not configured'}), 404
-    
+
     distro = config.get('DISTRO')
     config_file = os.path.join(PROJECT_ROOT, distro, '.configure')
     if not os.path.exists(config_file):
         return jsonify({'error': 'Config file not found'}), 404
-    
+
     detailed_config = {}
     with open(config_file, 'r') as f:
         for line in f:
@@ -216,7 +254,7 @@ def get_current_config():
                 key, value = line.split('=', 1)
                 value = value.strip('"').strip("'")
                 detailed_config[key] = value
-    
+
     return jsonify(detailed_config)
 
 @app.route('/api/config', methods=['POST'])
@@ -225,16 +263,16 @@ def set_config():
     data = request.json
     distro = data.get('distro')
     config_data = data.get('config', {})
-    
+
     if not distro or distro not in ['anolis', 'euler']:
         return jsonify({'error': 'Invalid distribution'}), 400
-    
+
     try:
         # Save distro config
         with open(os.path.join(PROJECT_ROOT, '.distro_config'), 'w') as f:
             f.write(f'DISTRO={distro}\n')
             f.write(f'DISTRO_DIR={distro}\n')
-        
+
         # Save detailed config
         config_file = os.path.join(PROJECT_ROOT, distro, '.configure')
         with open(config_file, 'w') as f:
@@ -244,39 +282,39 @@ def set_config():
             f.write(f'LINUX_SRC_PATH="{config_data.get("LINUX_SRC_PATH", "")}"\n')
             f.write(f'SIGNER_NAME="{config_data.get("SIGNER_NAME", "")}"\n')
             f.write(f'SIGNER_EMAIL="{config_data.get("SIGNER_EMAIL", "")}"\n')
-            
+
             if distro == 'anolis':
                 f.write(f'ANBZ_ID="{config_data.get("ANBZ_ID", "")}"\n')
             else:
                 f.write(f'BUGZILLA_ID="{config_data.get("BUGZILLA_ID", "")}"\n')
                 f.write(f'PATCH_CATEGORY="{config_data.get("PATCH_CATEGORY", "bugfix")}"\n')
-            
+
             f.write(f'NUM_PATCHES="{config_data.get("NUM_PATCHES", "10")}"\n\n')
             f.write('# Build\n')
             f.write(f'BUILD_THREADS="{config_data.get("BUILD_THREADS", "512")}"\n\n')
             f.write('# Test Configuration\n')
             f.write('RUN_TESTS="yes"\n')
-            
+
             # Enable all tests
             if distro == 'anolis':
-                for test in ['CHECK_KCONFIG', 'BUILD_ALLYES', 'BUILD_ALLNO', 'BUILD_DEFCONFIG', 
+                for test in ['CHECK_KCONFIG', 'BUILD_ALLYES', 'BUILD_ALLNO', 'BUILD_DEFCONFIG',
                             'BUILD_DEBUG', 'RPM_BUILD', 'CHECK_KAPI', 'BOOT_KERNEL']:
                     f.write(f'TEST_{test}="yes"\n')
             else:
-                for test in ['CHECK_DEPENDENCY', 'BUILD_ALLMOD', 'CHECK_PATCH', 
+                for test in ['CHECK_DEPENDENCY', 'BUILD_ALLMOD', 'CHECK_PATCH',
                             'CHECK_FORMAT', 'RPM_BUILD', 'BOOT_KERNEL']:
                     f.write(f'TEST_{test}="yes"\n')
-            
+
             f.write('\n# Host\n')
             f.write(f'HOST_USER_PWD=\'{config_data.get("HOST_USER_PWD", "")}\'\n\n')
             f.write('# VM\n')
             f.write(f'VM_IP="{config_data.get("VM_IP", "")}"\n')
             f.write(f'VM_ROOT_PWD=\'{config_data.get("VM_ROOT_PWD", "")}\'\n')
-            
+
             if distro == 'euler':
                 f.write(f'\n# Repository\n')
                 f.write(f'TORVALDS_REPO="{os.path.join(PROJECT_ROOT, ".torvalds-linux")}"\n')
-        
+
         return jsonify({'message': 'Configuration saved', 'distro': distro})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -287,7 +325,7 @@ def list_tests():
     config = get_distro_config()
     if not config:
         return jsonify({'error': 'Not configured'}), 404
-    
+
     distro = config.get('DISTRO')
     tests = {
         'anolis': [
@@ -314,6 +352,9 @@ def list_tests():
 @app.route('/api/build', methods=['POST'])
 def build():
     """Run make build"""
+    # Clone Torvalds repo silently before build
+    clone_torvalds_repo_silent()
+    
     job_id = str(uuid.uuid4())
     with job_lock:
         jobs[job_id] = {
@@ -349,10 +390,10 @@ def test_specific(test_name):
     config = get_distro_config()
     if not config:
         return jsonify({'error': 'Not configured'}), 400
-    
+
     distro = config.get('DISTRO')
     command = f'make {distro}-test={test_name}'
-    
+
     job_id = str(uuid.uuid4())
     with job_lock:
         jobs[job_id] = {
@@ -399,6 +440,37 @@ def reset():
     thread.start()
     return jsonify({'job_id': job_id})
 
+# NEW: Kill/Stop endpoint
+@app.route('/api/jobs/<job_id>/kill', methods=['POST'])
+def kill_job(job_id):
+    """Kill a running job"""
+    with job_lock:
+        if job_id not in jobs:
+            return jsonify({'error': 'Job not found'}), 404
+        
+        if jobs[job_id]['status'] != 'running':
+            return jsonify({'error': 'Job is not running'}), 400
+        
+        if job_id not in job_processes:
+            return jsonify({'error': 'Process not found'}), 404
+        
+        process = job_processes[job_id]
+    
+    try:
+        # Kill the entire process group
+        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        
+        # Update job status
+        with job_lock:
+            jobs[job_id]['status'] = 'killed'
+            jobs[job_id]['end_time'] = datetime.now().isoformat()
+            if job_id in job_processes:
+                del job_processes[job_id]
+        
+        return jsonify({'message': 'Job killed successfully', 'job_id': job_id})
+    except Exception as e:
+        return jsonify({'error': f'Failed to kill job: {str(e)}'}), 500
+
 @app.route('/api/jobs')
 def get_jobs():
     """Get all jobs"""
@@ -419,10 +491,10 @@ def get_job_log(job_id):
     with job_lock:
         if job_id not in jobs:
             return jsonify({'error': 'Job not found'}), 404
-        
+
         job = jobs[job_id]
         log_file = job.get('log_file')
-        
+
         # Try to get test-specific log
         if not log_file or not os.path.exists(log_file):
             test_name = job.get('test_name')
@@ -431,7 +503,7 @@ def get_job_log(job_id):
                 if config:
                     distro = config.get('DISTRO')
                     log_file = get_test_log_file(test_name, distro)
-        
+
         # Read log file
         if log_file and os.path.exists(log_file):
             try:
@@ -439,12 +511,12 @@ def get_job_log(job_id):
                     return jsonify({'log': f.read()})
             except Exception as e:
                 return jsonify({'error': f'Read error: {str(e)}'}), 500
-        
+
         # Fallback to command output
         output = job.get('output', '')
         if output:
             return jsonify({'log': output})
-        
+
         return jsonify({'error': 'No log available'}), 404
 
 if __name__ == '__main__':

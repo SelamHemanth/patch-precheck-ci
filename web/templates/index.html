@@ -95,6 +95,33 @@
             transform: translateY(-2px);
         }
 
+        .refresh-btn {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .refresh-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(17, 153, 142, 0.4);
+        }
+
+        .refresh-btn i {
+            transition: transform 0.3s;
+        }
+
+        .refresh-btn:hover i {
+            transform: rotate(180deg);
+        }
+
         /* Grid Layout */
         .main-grid {
             display: grid;
@@ -173,6 +200,7 @@
             background: linear-gradient(135deg, #cbd5e0, #a0aec0);
             cursor: not-allowed;
             transform: none;
+            opacity: 0.6;
         }
 
         .btn-success {
@@ -185,6 +213,22 @@
 
         .btn-warning {
             background: linear-gradient(135deg, #ed8936, #dd6b20);
+        }
+
+        /* NEW: Stop button style */
+        .btn-stop {
+            background: linear-gradient(135deg, #e53e3e, #c53030);
+            animation: pulse-stop 2s ease-in-out infinite;
+        }
+
+        .btn-stop:hover:not(:disabled) {
+            animation: none;
+            box-shadow: 0 6px 20px rgba(229, 62, 62, 0.4);
+        }
+
+        @keyframes pulse-stop {
+            0%, 100% { box-shadow: 0 4px 15px rgba(229, 62, 62, 0.3); }
+            50% { box-shadow: 0 6px 25px rgba(229, 62, 62, 0.6); }
         }
 
         .btn-small {
@@ -224,6 +268,10 @@
 
         .progress-status.failed {
             color: #f56565;
+        }
+
+        .progress-status.killed {
+            color: #e53e3e;
         }
 
         .progress-bar {
@@ -323,6 +371,11 @@
 
         .test-status-icon.failed {
             background: #fc8181;
+            color: #742a2a;
+        }
+
+        .test-status-icon.killed {
+            background: #feb2b2;
             color: #742a2a;
         }
 
@@ -710,6 +763,9 @@
                         <button v-if="systemStatus.configured" class="config-info-btn" @click="showConfigInfo">
                             <i class="fas fa-info-circle"></i> View Config
                         </button>
+                        <button class="refresh-btn" @click="refreshPage">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
                     </div>
                 </div>
             </div>
@@ -748,7 +804,7 @@
                             <h2>Build</h2>
                         </div>
                         <div class="action-section">
-                            <button class="btn btn-success" @click="runBuild" :disabled="!systemStatus.configured || buildJob.status === 'running'">
+                            <button class="btn btn-success" @click="runBuild" :disabled="!canRunBuild">
                                 <i class="fas fa-play"></i>
                                 Run Build
                             </button>
@@ -813,9 +869,14 @@
                             <i class="fas fa-broom"></i>
                             Clean
                         </button>
-                        <button class="btn btn-danger" @click="runReset" :disabled="!systemStatus.configured">
+                        <button class="btn btn-danger" @click="runReset" :disabled="!canRunReset" style="margin-bottom: 10px;">
                             <i class="fas fa-undo"></i>
                             Reset
+                        </button>
+                        <!-- NEW: Stop button (only shows when any process is running) -->
+                        <button v-if="hasRunningProcess" class="btn btn-stop" @click="stopRunningProcess">
+                            <i class="fas fa-stop-circle"></i>
+                            Stop Running Process
                         </button>
                     </div>
                 </div>
@@ -826,17 +887,17 @@
                         <i class="fas fa-list-check"></i>
                         <h2>Available Tests</h2>
                     </div>
-                    
+
                     <div v-if="loading" class="loading">
                         <div class="spinner"></div>
                         <p>Loading tests...</p>
                     </div>
-                    
+
                     <div v-else-if="!systemStatus.configured" class="empty-state">
                         <i class="fas fa-info-circle"></i>
                         <p>Please configure the system to see available tests</p>
                     </div>
-                    
+
                     <div v-else-if="tests.length > 0" class="test-grid">
                         <div v-for="test in tests" :key="test.name" class="test-item">
                             <div class="test-info">
@@ -848,6 +909,7 @@
                                     <i v-if="testJobs[test.name].status === 'running'" class="fas fa-spinner fa-spin"></i>
                                     <i v-else-if="testJobs[test.name].status === 'completed'" class="fas fa-check"></i>
                                     <i v-else-if="testJobs[test.name].status === 'failed'" class="fas fa-times"></i>
+                                    <i v-else-if="testJobs[test.name].status === 'killed'" class="fas fa-ban"></i>
                                 </div>
                                 <button class="btn btn-small" @click="runTest(test.name)" :disabled="testJobs[test.name] && testJobs[test.name].status === 'running'">
                                     <i class="fas fa-play"></i>
@@ -858,7 +920,7 @@
                             </div>
                         </div>
                     </div>
-                    
+
                     <div v-else class="empty-state">
                         <i class="fas fa-inbox"></i>
                         <p>No tests available</p>
@@ -903,7 +965,7 @@
                             <i class="fas fa-times"></i>
                         </button>
                     </div>
-                    
+
                     <div v-if="loadingFields" class="loading">
                         <div class="spinner"></div>
                         <p>Loading configuration fields...</p>
@@ -1041,8 +1103,27 @@
                     configFields: { general: [], build: [], vm: [], host: [] },
                     configData: {},
                     currentConfig: {},
-                    currentLog: ''
+                    currentLog: '',
+                    buildHasRun: false
                 };
+            },
+            computed: {
+                canRunBuild() {
+                    return this.systemStatus.configured && 
+                           (!this.buildHasRun || this.buildJob.status !== 'running');
+                },
+                canRunReset() {
+                    return this.buildHasRun && this.buildJob.status !== 'running';
+                },
+                // NEW: Check if any process is running
+                hasRunningProcess() {
+                    // Check if build is running
+                    if (this.buildJob.status === 'running') return true;
+                    // Check if test all is running
+                    if (this.testAllJob.status === 'running') return true;
+                    // Check if any individual test is running
+                    return Object.values(this.testJobs).some(job => job.status === 'running');
+                }
             },
             mounted() {
                 this.loadStatus();
@@ -1088,14 +1169,28 @@
                     }
                 },
                 categorizeJobs() {
-                    // Categorize jobs
-                    const buildJob = this.jobs.find(j => j.command === 'make build');
+                    const buildJobs = this.jobs.filter(j => j.command === 'make build')
+                        .sort((a, b) => new Date(b.created_time) - new Date(a.created_time));
+                    const buildJob = buildJobs[0];
+                    
                     const testAllJob = this.jobs.find(j => j.command === 'make test');
+
+                    if (buildJob) {
+                        this.buildJob = { ...buildJob, elapsed: this.calculateElapsed(buildJob) };
+                        
+                        if (buildJob.status === 'completed' || buildJob.status === 'failed' || buildJob.status === 'killed') {
+                            this.buildHasRun = true;
+                        }
+                        
+                        if (buildJob.status === 'running') {
+                            this.buildHasRun = true;
+                        }
+                    } else {
+                        this.buildJob = {};
+                    }
                     
-                    if (buildJob) this.buildJob = { ...buildJob, elapsed: this.calculateElapsed(buildJob) };
                     if (testAllJob) this.testAllJob = { ...testAllJob, elapsed: this.calculateElapsed(testAllJob) };
-                    
-                    // Individual test jobs
+
                     this.jobs.forEach(job => {
                         if (job.test_name) {
                             this.testJobs[job.test_name] = { ...job, elapsed: this.calculateElapsed(job) };
@@ -1114,16 +1209,19 @@
                 updateJobProgress() {
                     if (this.buildJob.status === 'completed') this.buildJob.progress = 100;
                     else if (this.buildJob.status === 'failed') this.buildJob.progress = 100;
-                    
+                    else if (this.buildJob.status === 'killed') this.buildJob.progress = 100;
+
                     if (this.testAllJob.status === 'completed') this.testAllJob.progress = 100;
                     else if (this.testAllJob.status === 'failed') this.testAllJob.progress = 100;
+                    else if (this.testAllJob.status === 'killed') this.testAllJob.progress = 100;
                 },
                 getStatusIcon(status) {
                     const icons = {
                         running: 'fas fa-spinner fa-spin',
                         completed: 'fas fa-check-circle',
                         failed: 'fas fa-times-circle',
-                        queued: 'fas fa-clock'
+                        queued: 'fas fa-clock',
+                        killed: 'fas fa-ban'
                     };
                     return icons[status] || 'fas fa-question-circle';
                 },
@@ -1198,7 +1296,11 @@
                     this.currentLog = '';
                 },
                 async runBuild() {
+                    if (!this.canRunBuild) return;
+                    
                     try {
+                        this.buildJob = {};
+                        
                         await axios.post('/api/build');
                         this.loadJobs();
                     } catch (error) {
@@ -1230,13 +1332,11 @@
                         '• Build artifacts\n\n' +
                         'Do you want to continue?'
                     );
-                    
-                    if (!confirmed) {
-                        return;
-                    }
-                    
+
+                    if (!confirmed) return;
+
                     try {
-                        const response = await axios.post('/api/clean');
+                        await axios.post('/api/clean');
                         alert('✓ Clean operation started successfully!');
                         this.loadJobs();
                     } catch (error) {
@@ -1244,35 +1344,89 @@
                     }
                 },
                 async runReset() {
+                    if (!this.canRunReset) return;
+                    
                     const confirmed = confirm(
                         '⚠️ Reset Operation\n\n' +
                         'This will reset the git repository to the saved HEAD commit.\n' +
                         'All uncommitted changes will be lost!\n\n' +
                         'Are you absolutely sure you want to continue?'
                     );
-                    
-                    if (!confirmed) {
-                        return;
-                    }
-                    
-                    // Double confirmation for reset
+
+                    if (!confirmed) return;
+
                     const doubleConfirm = confirm(
                         '⚠️ FINAL CONFIRMATION\n\n' +
                         'This action cannot be undone.\n' +
                         'Click OK to proceed with reset.'
                     );
-                    
-                    if (!doubleConfirm) {
-                        return;
-                    }
-                    
+
+                    if (!doubleConfirm) return;
+
                     try {
-                        const response = await axios.post('/api/reset');
+                        this.buildHasRun = false;
+                        this.buildJob = {};
+                        
+                        await axios.post('/api/reset');
                         alert('✓ Reset operation started successfully!');
                         this.loadJobs();
                     } catch (error) {
                         alert('❌ Failed to start reset operation: ' + error.message);
                     }
+                },
+                // NEW: Stop running process
+                async stopRunningProcess() {
+                    const confirmed = confirm(
+                        '⚠️ STOP RUNNING PROCESS\n\n' +
+                        'This will terminate the currently running process.\n' +
+                        'The process will be killed immediately.\n\n' +
+                        'Do you want to continue?'
+                    );
+
+                    if (!confirmed) return;
+
+                    const doubleConfirm = confirm(
+                        '⚠️ FINAL CONFIRMATION\n\n' +
+                        'Are you sure you want to stop the running process?\n' +
+                        'This action cannot be undone.\n\n' +
+                        'Click OK to stop the process.'
+                    );
+
+                    if (!doubleConfirm) return;
+
+                    try {
+                        // Find the running job ID
+                        let runningJobId = null;
+                        
+                        if (this.buildJob.status === 'running') {
+                            runningJobId = this.buildJob.id;
+                        } else if (this.testAllJob.status === 'running') {
+                            runningJobId = this.testAllJob.id;
+                        } else {
+                            // Check individual tests
+                            for (const [testName, job] of Object.entries(this.testJobs)) {
+                                if (job.status === 'running') {
+                                    runningJobId = job.id;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!runningJobId) {
+                            alert('No running process found');
+                            return;
+                        }
+
+                        // Kill the job
+                        await axios.post(`/api/jobs/${runningJobId}/kill`);
+                        alert('✓ Process stopped successfully!');
+                        this.loadJobs();
+                    } catch (error) {
+                        alert('❌ Failed to stop process: ' + (error.response?.data?.error || error.message));
+                    }
+                },
+                refreshPage() {
+                    location.reload();
                 }
             }
         }).mount('#app');
