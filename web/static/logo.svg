@@ -1,0 +1,79 @@
+<svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Circle -->
+  <circle cx="200" cy="200" r="190" fill="url(#gradient1)" stroke="#667eea" stroke-width="8"/>
+  
+  <!-- Gradient Definitions -->
+  <defs>
+    <linearGradient id="gradient1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+    
+    <linearGradient id="gradient2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#48bb78;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#38ef7d;stop-opacity:1" />
+    </linearGradient>
+    
+    <linearGradient id="gradient3" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#ffffff;stop-opacity:0.6" />
+    </linearGradient>
+    
+    <!-- Drop Shadow -->
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+      <feOffset dx="0" dy="2" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.3"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Main Shield Shape -->
+  <path d="M 200 60 L 290 90 L 290 220 Q 290 280 200 340 Q 110 280 110 220 L 110 90 Z" 
+        fill="url(#gradient3)" 
+        stroke="#ffffff" 
+        stroke-width="4" 
+        filter="url(#shadow)"/>
+  
+  <!-- Checkmark Circle -->
+  <circle cx="200" cy="180" r="70" fill="url(#gradient2)" stroke="#ffffff" stroke-width="5" filter="url(#shadow)"/>
+  
+  <!-- Checkmark -->
+  <path d="M 170 180 L 190 205 L 235 155" 
+        fill="none" 
+        stroke="#ffffff" 
+        stroke-width="12" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
+  
+  <!-- Gear Icon (CI Symbol) -->
+  <g transform="translate(200, 280)" filter="url(#shadow)">
+    <!-- Gear body -->
+    <circle cx="0" cy="0" r="28" fill="#667eea" stroke="#ffffff" stroke-width="3"/>
+    <circle cx="0" cy="0" r="12" fill="#ffffff"/>
+    
+    <!-- Gear teeth -->
+    <rect x="-4" y="-38" width="8" height="14" fill="#667eea" rx="2"/>
+    <rect x="-4" y="24" width="8" height="14" fill="#667eea" rx="2"/>
+    <rect x="24" y="-4" width="14" height="8" fill="#667eea" rx="2"/>
+    <rect x="-38" y="-4" width="14" height="8" fill="#667eea" rx="2"/>
+    
+    <rect x="17" y="-30" width="8" height="14" fill="#667eea" rx="2" transform="rotate(45 0 0)"/>
+    <rect x="-30" y="-30" width="8" height="14" fill="#667eea" rx="2" transform="rotate(-45 0 0)"/>
+    <rect x="17" y="17" width="8" height="14" fill="#667eea" rx="2" transform="rotate(135 0 0)"/>
+    <rect x="-30" y="17" width="8" height="14" fill="#667eea" rx="2" transform="rotate(-135 0 0)"/>
+  </g>
+  
+  <!-- Code Brackets -->
+  <text x="135" y="120" font-family="monospace" font-size="40" font-weight="bold" fill="#ffffff" opacity="0.8">&lt;</text>
+  <text x="250" y="120" font-family="monospace" font-size="40" font-weight="bold" fill="#ffffff" opacity="0.8">/&gt;</text>
+  
+  <!-- Decorative Lines -->
+  <line x1="100" y1="310" x2="150" y2="310" stroke="#ffffff" stroke-width="3" opacity="0.6" stroke-linecap="round"/>
+  <line x1="250" y1="310" x2="300" y2="310" stroke="#ffffff" stroke-width="3" opacity="0.6" stroke-linecap="round"/>
+</svg>

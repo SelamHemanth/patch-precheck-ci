@@ -1,4 +1,4 @@
-# Patch Pre-Check CI Tool
+# <img src="web/static/logo.svg" alt="Patch Pre-Check Logo" height="40" /> Patch Pre-Check CI Tool
 
 This tool automates distribution detection, configuration, patch application, and kernel build/test workflows across supported Linux distributions.
 

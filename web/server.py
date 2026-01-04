@@ -11,7 +11,7 @@ import uuid
 import signal
 import re
 from datetime import datetime
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -34,6 +34,15 @@ TORVALDS_REPO = os.path.join(PROJECT_ROOT, '.torvalds-linux')
 jobs = {}
 job_lock = threading.Lock()
 job_processes = {}
+
+# Add static file route
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    """Serve static files"""
+    return send_from_directory(
+        os.path.join(SCRIPT_DIR, 'static'),
+        filename
+    )
 
 def clean_ansi_codes(text):
     """Remove ANSI color codes and escape sequences from text"""

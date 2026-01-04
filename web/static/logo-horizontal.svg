@@ -1,0 +1,67 @@
+<svg width="600" height="200" viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Gradient Definitions -->
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+    
+    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#48bb78;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#38ef7d;stop-opacity:1" />
+    </linearGradient>
+    
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Icon Circle Background -->
+  <circle cx="100" cy="100" r="85" fill="url(#grad1)" opacity="0.1"/>
+  
+  <!-- Shield Shape -->
+  <path d="M 100 30 L 155 45 L 155 115 Q 155 145 100 170 Q 45 145 45 115 L 45 45 Z" 
+        fill="url(#grad1)" 
+        opacity="0.9"
+        filter="url(#glow)"/>
+  
+  <!-- Checkmark Circle -->
+  <circle cx="100" cy="95" r="35" fill="url(#grad2)"/>
+  
+  <!-- Checkmark -->
+  <path d="M 85 95 L 95 107 L 117 80" 
+        fill="none" 
+        stroke="#ffffff" 
+        stroke-width="7" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
+  
+  <!-- Gear Icon -->
+  <g transform="translate(100, 140)">
+    <circle cx="0" cy="0" r="15" fill="#667eea"/>
+    <circle cx="0" cy="0" r="6" fill="#ffffff"/>
+    <!-- Gear teeth -->
+    <rect x="-2.5" y="-20" width="5" height="8" fill="#667eea" rx="1"/>
+    <rect x="-2.5" y="12" width="5" height="8" fill="#667eea" rx="1"/>
+    <rect x="12" y="-2.5" width="8" height="5" fill="#667eea" rx="1"/>
+    <rect x="-20" y="-2.5" width="8" height="5" fill="#667eea" rx="1"/>
+  </g>
+  
+  <!-- Text -->
+  <text x="190" y="100" font-family="'Inter', -apple-system, sans-serif" font-size="50" font-weight="700" fill="#2d3748">
+    Patch Pre-Check
+  </text>
+  
+  <text x="190" y="140" font-family="'Inter', -apple-system, sans-serif" font-size="36" font-weight="600" fill="#667eea">
+    CI Tool
+  </text>
+  
+  <!-- Subtitle -->
+  <text x="190" y="170" font-family="'Inter', -apple-system, sans-serif" font-size="24" font-weight="400" fill="#718096">
+    Automated Kernel Patch Validation
+  </text>
+</svg>

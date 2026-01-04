@@ -1,0 +1,43 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Gradient Definitions -->
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+    
+    <linearGradient id="check" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#48bb78;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#38ef7d;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background Circle -->
+  <circle cx="32" cy="32" r="30" fill="url(#bg)"/>
+  
+  <!-- Shield Shape -->
+  <path d="M 32 12 L 48 17 L 48 38 Q 48 47 32 52 Q 16 47 16 38 L 16 17 Z" 
+        fill="#ffffff" 
+        opacity="0.3"/>
+  
+  <!-- Checkmark Circle -->
+  <circle cx="32" cy="32" r="14" fill="url(#check)"/>
+  
+  <!-- Checkmark -->
+  <path d="M 26 32 L 30 37 L 39 26" 
+        fill="none" 
+        stroke="#ffffff" 
+        stroke-width="3" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
+  
+  <!-- Small Gear -->
+  <g transform="translate(32, 48)">
+    <circle cx="0" cy="0" r="6" fill="#667eea"/>
+    <circle cx="0" cy="0" r="2.5" fill="#ffffff"/>
+    <rect x="-1" y="-8" width="2" height="3" fill="#667eea"/>
+    <rect x="-1" y="5" width="2" height="3" fill="#667eea"/>
+    <rect x="5" y="-1" width="3" height="2" fill="#667eea"/>
+    <rect x="-8" y="-1" width="3" height="2" fill="#667eea"/>
+  </g>
+</svg>

@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Patch Pre-Check CI Dashboard</title>
+    <title>Patch Pre-Check CI Tool</title>
     <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <style>
         * {
             margin: 0;
@@ -748,10 +749,10 @@
             <!-- Header -->
             <div class="header">
                 <div class="header-content">
-                    <h1>
-                        <i class="fas fa-tools"></i>
-                        Patch Pre-Check CI Dashboard
-                    </h1>
+		    <img src="/static/logo-horizontal.svg"
+			 alt="Patch Pre-Check CI Tool"
+			 height="120"
+			 style="margin-right: 20px;">
                     <div class="status-info">
                         <span class="status-badge" :class="systemStatus.configured ? 'configured' : 'not-configured'">
                             <i :class="systemStatus.configured ? 'fas fa-check-circle' : 'fas fa-exclamation-circle'"></i>
