@@ -193,6 +193,7 @@ if [ ! -d "$TORVALDS_REPO" ]; then
     stdbuf -oL tr '\r' '\n' | \
     grep -oP '\d+(?=%)' | \
     awk '{printf "\rProgress: %d%%", $1; fflush()}' || \
+    git config --global --add safe.directory $TORVALDS_REPO
     echo -e "\r${GREEN}Repository cloned successfully${NC}"
   echo ""
 else
