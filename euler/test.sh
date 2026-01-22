@@ -371,7 +371,7 @@ test_check_format() {
     fi
     
     # Check for bugzilla line
-    if ! echo "${commit_msg}" | grep -q "^bugzilla: https://gitee.com/openeuler/kernel/issues/"; then
+    if ! echo "${commit_msg}" | grep -q "^bugzilla: https://atomgit.com/openeuler/kernel/issues/"; then
       echo "  ✗ Missing or incorrect 'bugzilla:' line" >> "${format_log}"
       has_error=1
     fi

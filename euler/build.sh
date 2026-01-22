@@ -229,7 +229,7 @@ for p in "${PATCHES_DIR}"/*.patch; do
             print ""
             print "virt inclusion"
             print "category: " CAT
-            print "bugzilla: https://gitee.com/openeuler/kernel/issues/" BZ
+            print "bugzilla: https://atomgit.com/openeuler/kernel/issues/" BZ
             print ""
             print "--------------------------------"
             print ""
@@ -248,7 +248,7 @@ for p in "${PATCHES_DIR}"/*.patch; do
           print ""
           print "virt inclusion"
           print "category: " CAT
-          print "bugzilla: https://gitee.com/openeuler/kernel/issues/" BZ
+          print "bugzilla: https://atomgit.com/openeuler/kernel/issues/" BZ
           print ""
           print "--------------------------------"
           print ""
@@ -276,7 +276,7 @@ for p in "${PATCHES_DIR}"/*.patch; do
               print "from mainline-" TAG
               print "commit " COMMIT
               print "category: " CAT
-              print "bugzilla: https://gitee.com/openeuler/kernel/issues/" BZ
+              print "bugzilla: https://atomgit.com/openeuler/kernel/issues/" BZ
               print "CVE: NA"
               print ""
               print "Reference: https://github.com/torvalds/linux/commit/" COMMIT
@@ -300,7 +300,7 @@ for p in "${PATCHES_DIR}"/*.patch; do
             print "from mainline-" TAG
             print "commit " COMMIT
             print "category: " CAT
-            print "bugzilla: https://gitee.com/openeuler/kernel/issues/" BZ
+            print "bugzilla: https://atomgit.com/openeuler/kernel/issues/" BZ
             print "CVE: NA"
             print ""
             print "Reference: https://github.com/torvalds/linux/commit/" COMMIT
