@@ -477,18 +477,20 @@ test_check_kapi() {
   echo "  → Checking KAPI for vmlinux..."
   echo "  → Setting up KAPI test environment..." >> "$KAPI_LOG"
 
+  # Remove existed kabi tools, if it's exist
+  if [ -d "${KAPI_TEST_DIR}" ]; then
+    echo "  → Cleaning up existing kabi test directory..." >> "$KAPI_LOG"
+    rm -rf "${KAPI_TEST_DIR}"
+  fi
+
   # Create test directory if it doesn't exist
   mkdir -p "${KAPI_TEST_DIR}"
 
-  # Check and clone kabi-dw tool if needed
-  if [ -d "${KABI_DW_DIR}" ]; then
-    echo "  → kabi-dw repository already exists, skipping clone..." >> "$KAPI_LOG"
-  else
-    echo "  → Cloning kabi-dw repository..." >> "$KAPI_LOG"
-    if ! git clone https://gitee.com/anolis/kabi-dw.git "${KABI_DW_DIR}" >> "${KAPI_LOG}" 2>&1; then
-      fail "check_kapi" "Failed to clone kabi-dw repository"
-      return
-    fi
+  # Clone kabi-dw repo
+  echo "  → Cloning kabi-dw repository..." >> "$KAPI_LOG"
+  if ! git clone https://gitee.com/anolis/kabi-dw.git "${KABI_DW_DIR}" >> "${KAPI_LOG}" 2>&1; then
+	  fail "check_kapi" "Failed to clone kabi-dw repository"
+	  return
   fi
 
   # Build kabi-dw tool
@@ -500,35 +502,34 @@ test_check_kapi() {
   fi
 
   # Check and clone kabi-whitelist repository if needed
-  if [ -d "${KABI_WHITELIST_DIR}" ]; then
-    echo "  → kabi-whitelist repository already exists, skipping clone..." >> "$KAPI_LOG"
-    # Verify it's on the correct branch
-    cd "${KABI_WHITELIST_DIR}"
-    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-    if [ "${CURRENT_BRANCH}" != "${KABI_BRANCH}" ]; then
-      echo "  → Switching to branch ${KABI_BRANCH}..." >> "$KAPI_LOG"
-      if ! git checkout "${KABI_BRANCH}" >> "${KAPI_LOG}" 2>&1; then
-        echo "  → Warning: Could not switch to branch ${KABI_BRANCH}, using ${CURRENT_BRANCH}" >> "$KAPI_LOG"
-      fi
-    fi
-  else
-    echo "  → Cloning kabi-whitelist repository (branch: ${KABI_BRANCH})..." >> "$KAPI_LOG"
-    if ! git clone --depth 1 -b "${KABI_BRANCH}" https://gitee.com/anolis/kabi-whitelist.git "${KABI_WHITELIST_DIR}" >> "${KAPI_LOG}" 2>&1; then
-      fail "check_kapi" "Failed to clone kabi-whitelist repository (branch ${KABI_BRANCH} may not exist)"
-      return
-    fi
+  echo "  → Cloning kabi-whitelist repository (branch: ${KABI_BRANCH})..." >> "$KAPI_LOG"
+  if ! git clone --depth 1 -b "${KABI_BRANCH}" https://gitee.com/anolis/kabi-whitelist.git "${KABI_WHITELIST_DIR}" >> "${KAPI_LOG}" 2>&1; then
+	  fail "check_kapi" "Failed to clone kabi-whitelist repository (branch ${KABI_BRANCH} may not exist)"
+	  return
   fi
 
   # Find vmlinux file in kernel source directory
   echo "  → Locating vmlinux file..." >> "$KAPI_LOG"
   local VMLINUX_PATH="${LINUX_SRC_PATH}/vmlinux"
 
-  if [ ! -f "${VMLINUX_PATH}" ]; then
-    skip "check_kapi" "vmlinux not found at ${VMLINUX_PATH}. Build the kernel first."
+  # Remove and build the kernel
+  rm -rf "${VMLINUX_PATH}"
+  cd "${LINUX_SRC_PATH}"
+
+  if make mrproper >> "${KAPI_LOG}" 2>&1 \
+    && make anolis_defconfig >> "${KAPI_LOG}" 2>&1 \
+    && make -j"$(nproc)" >> "${KAPI_LOG}" 2>&1 \
+    && make modules -j"$(nproc)" >> "${KAPI_LOG}" 2>&1; then
+    echo "Building kernel completed and vmlinux found at ${VMLINUX_PATH}" >> "$KAPI_LOG"
+  else
+    fail "check_kapi" "Build kernel failed (see ${KAPI_LOG})"
     return
   fi
 
-  echo "  → Found vmlinux at: ${VMLINUX_PATH}" >> "$KAPI_LOG"
+  if [ ! -f "${VMLINUX_PATH}" ]; then
+	  fail "check_kapi" "vmlinux not found at ${VMLINUX_PATH}"
+	  return
+  fi
 
   # Determine architecture
   local KABI_ARCH=""
