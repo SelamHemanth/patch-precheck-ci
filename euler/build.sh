@@ -119,7 +119,7 @@ get_tag_version() {
   cd - >/dev/null
 }
 
-# Function to check if patch is KABI fix
+# Function to check if patch is KABI fix (operates on .patch files)
 is_kabi_fix_patch() {
   local patch_file="$1"
   local upstream_commit=$(extract_upstream_commit "${patch_file}" "false")
@@ -131,83 +131,95 @@ is_kabi_fix_patch() {
   return 1  # Not KABI fix
 }
 
-# Save current HEAD id for later reset (full SHA)
-cd "${LINUX_SRC_PATH}"
-HEAD_ID="$(git rev-parse --verify HEAD)"
-printf "%s\n" "${HEAD_ID}" > "${HEAD_ID_FILE}"
-echo -e "${BLUE}Saved HEAD commit: ${HEAD_ID}${NC}"
-TMP_FORMAT_DIR="$(mktemp -d "${WORKDIR}/formatpatches.XXXX")"
-echo -e "${BLUE}Generating ${NUM_PATCHES} patches...${NC}"
-git -c core.quiet=true format-patch -${NUM_PATCHES} -o "${TMP_FORMAT_DIR}" "HEAD~${NUM_PATCHES}..HEAD" >/dev/null 2>&1 || {
-  git format-patch -${NUM_PATCHES} -o "${TMP_FORMAT_DIR}" "HEAD~${NUM_PATCHES}..HEAD"
+# Function to check if a commit (from git log) is a KABI fix (used for runtime tag check)
+is_kabi_fix_commit() {
+  local commit_msg="$1"
+  local subject
+  subject="$(echo "${commit_msg}" | head -1)"
+  # No upstream commit reference AND subject contains KABI/kabi keywords
+  if ! echo "${commit_msg}" | grep -qP 'commit [a-f0-9]{7,40}( upstream)?'; then
+    if echo "${subject}" | grep -qiE 'KABI|kabi|KAPI|kapi'; then
+      return 0  # Is KABI fix
+    fi
+  fi
+  return 1  # Not KABI fix
 }
 
-# Backup existing patches and move new ones
-mkdir -p "${BKP_DIR}"
-for ex in "${PATCHES_DIR}"/*.patch; do
-  [ -f "${ex}" ] || continue
-  cp -f "${ex}" "${BKP_DIR}/$(basename "${ex}").bak-$(date +%s)"
-done
-rm -f "${PATCHES_DIR}"/*.patch || true
-mv "${TMP_FORMAT_DIR}"/*.patch "${PATCHES_DIR}/" 2>/dev/null || true
-rm -rf "${TMP_FORMAT_DIR}"
+SOB_TAG="Signed-off-by: ${SIGNER_NAME} <${SIGNER_EMAIL}>"
 
-# Reset repo back by NUM_PATCHES commits so we can re-apply
-git reset --hard "HEAD~${NUM_PATCHES}" >/dev/null 2>&1 || true
-echo -e "${YELLOW}HEAD is now at $(git rev-parse --short HEAD) $(git log -1 --pretty=%s)${NC}"
-echo -e "${BLUE}Modifying patches with openEuler metadata and Signed-off-by tags...${NC}"
+echo -e "${BLUE}Checking if commits are already tagged with openEuler metadata...${NC}"
 
-# Modify patches in-place with required formatting
-for p in "${PATCHES_DIR}"/*.patch; do
-  [ -f "${p}" ] || continue
-  cp -f "${p}" "${BKP_DIR}/$(basename "${p}")"
-  # Check if this is a KABI fix patch
-  if is_kabi_fix_patch "${p}"; then
-    # Insert KABI fix header after Subject
-    awk -v CAT="$PATCH_CATEGORY" -v BZ="$BUGZILLA_ID" '
-      BEGIN { in_sub=0; printed_header=0 }
-      {
-        if (!in_sub) {
-          print $0
-          if ($0 ~ /^Subject:/) { in_sub=1; next }
-        } else if (in_sub && !printed_header) {
-          if ($0 ~ /^$/) {
-            print ""
-            print "virt inclusion"
-            print "category: " CAT
-            print "bugzilla: https://atomgit.com/openeuler/kernel/issues/" BZ
-            print ""
-            print "--------------------------------"
-            print ""
-            printed_header=1
-            next
-          } else {
-            print $0
-            next
-          }
-        } else {
-          print $0
-        }
-      }
-      END {
-        if (in_sub && !printed_header) {
-          print ""
-          print "virt inclusion"
-          print "category: " CAT
-          print "bugzilla: https://atomgit.com/openeuler/kernel/issues/" BZ
-          print ""
-          print "--------------------------------"
-          print ""
-        }
-      }' "${p}" > "${p}.tmp" && mv "${p}.tmp" "${p}"
+# SKIP_APPLY=true means commits+patches are already in place — no git am needed
+SKIP_APPLY=false
+
+all_tagged=true
+while IFS= read -r commit_hash; do
+  commit_msg="$(git log -1 --format="%B" "${commit_hash}")"
+
+  if is_kabi_fix_commit "${commit_msg}"; then
+    # KABI fix: only "virt inclusion" required — Signed-off-by not expected
+    if ! echo "${commit_msg}" | grep -qF "virt inclusion"; then
+      all_tagged=false
+      break
+    fi
   else
-    # Extract upstream commit from patch content and expand if needed
-    upstream_commit=$(extract_upstream_commit "${p}")
-    if [ -n "$upstream_commit" ]; then
-      # Get tag version from Torvalds repo
-      tag_version=$(get_tag_version "$upstream_commit")
-      # Insert openEuler header after Subject
-      awk -v TAG="$tag_version" -v COMMIT="$upstream_commit" -v CAT="$PATCH_CATEGORY" -v BZ="$BUGZILLA_ID" '
+    # Regular commit: inclusion header + Signed-off-by both required
+    if ! echo "${commit_msg}" | grep -qE "mainline inclusion|virt inclusion"; then
+      all_tagged=false
+      break
+    fi
+    if ! echo "${commit_msg}" | grep -qF "${SOB_TAG}"; then
+      all_tagged=false
+      break
+    fi
+  fi
+done < <(git log --format="%H" -n "${NUM_PATCHES}" HEAD)
+
+if [ "${all_tagged}" = true ]; then
+  echo -e "${GREEN}All ${NUM_PATCHES} commits already contain openEuler metadata.${NC}"
+  echo -e "${YELLOW}Skipping format-patch, backup, reset, metadata modification, and patch apply steps.${NC}"
+  echo ""
+  SKIP_APPLY=true
+
+else
+  echo -e "${BLUE}Commits not fully tagged. Running full patch generation and modification...${NC}"
+
+  # Save current HEAD id for later reset (full SHA)
+  HEAD_ID="$(git rev-parse --verify HEAD)"
+  printf "%s\n" "${HEAD_ID}" > "${HEAD_ID_FILE}"
+  echo -e "${BLUE}Saved HEAD commit: ${HEAD_ID}${NC}"
+
+  TMP_FORMAT_DIR="$(mktemp -d "${WORKDIR}/formatpatches.XXXX")"
+  echo -e "${BLUE}Generating ${NUM_PATCHES} patches...${NC}"
+  git -c core.quiet=true format-patch -${NUM_PATCHES} -o "${TMP_FORMAT_DIR}" "HEAD~${NUM_PATCHES}..HEAD" >/dev/null 2>&1 || {
+    git format-patch -${NUM_PATCHES} -o "${TMP_FORMAT_DIR}" "HEAD~${NUM_PATCHES}..HEAD"
+  }
+
+  # Backup existing patches and move new ones
+  mkdir -p "${BKP_DIR}"
+  for ex in "${PATCHES_DIR}"/*.patch; do
+    [ -f "${ex}" ] || continue
+    cp -f "${ex}" "${BKP_DIR}/$(basename "${ex}").bak-$(date +%s)"
+  done
+  rm -f "${PATCHES_DIR}"/*.patch || true
+  mv "${TMP_FORMAT_DIR}"/*.patch "${PATCHES_DIR}/" 2>/dev/null || true
+  rm -rf "${TMP_FORMAT_DIR}"
+
+  # Reset repo back by NUM_PATCHES commits so we can re-apply
+  git reset --hard "HEAD~${NUM_PATCHES}" >/dev/null 2>&1 || true
+  echo -e "${YELLOW}HEAD is now at $(git rev-parse --short HEAD) $(git log -1 --pretty=%s)${NC}"
+
+  echo -e "${BLUE}Modifying patches with openEuler metadata and Signed-off-by tags...${NC}"
+
+  # Modify patches in-place with required formatting
+  for p in "${PATCHES_DIR}"/*.patch; do
+    [ -f "${p}" ] || continue
+    cp -f "${p}" "${BKP_DIR}/$(basename "${p}")"
+
+    # Check if this is a KABI fix patch
+    if is_kabi_fix_patch "${p}"; then
+      # ── KABI fix: insert "virt inclusion" header ONLY — Signed-off-by skipped ──
+      awk -v CAT="$PATCH_CATEGORY" -v BZ="$BUGZILLA_ID" '
         BEGIN { in_sub=0; printed_header=0 }
         {
           if (!in_sub) {
@@ -216,14 +228,9 @@ for p in "${PATCHES_DIR}"/*.patch; do
           } else if (in_sub && !printed_header) {
             if ($0 ~ /^$/) {
               print ""
-              print "mainline inclusion"
-              print "from mainline-" TAG
-              print "commit " COMMIT
+              print "virt inclusion"
               print "category: " CAT
               print "bugzilla: https://atomgit.com/openeuler/kernel/issues/" BZ
-              print "CVE: NA"
-              print ""
-              print "Reference: https://github.com/torvalds/linux/commit/" COMMIT
               print ""
               print "--------------------------------"
               print ""
@@ -240,41 +247,96 @@ for p in "${PATCHES_DIR}"/*.patch; do
         END {
           if (in_sub && !printed_header) {
             print ""
-            print "mainline inclusion"
-            print "from mainline-" TAG
-            print "commit " COMMIT
+            print "virt inclusion"
             print "category: " CAT
             print "bugzilla: https://atomgit.com/openeuler/kernel/issues/" BZ
-            print "CVE: NA"
-            print ""
-            print "Reference: https://github.com/torvalds/linux/commit/" COMMIT
             print ""
             print "--------------------------------"
             print ""
           }
         }' "${p}" > "${p}.tmp" && mv "${p}.tmp" "${p}"
+
+      echo -e "  ${YELLOW}KABI fix — Signed-off-by skipped: $(basename "${p}")${NC}"
+
+    else
+      # ── Regular patch: insert mainline inclusion header + Signed-off-by ──
+
+      # Extract upstream commit from patch content and expand if needed
+      upstream_commit=$(extract_upstream_commit "${p}")
+      if [ -n "$upstream_commit" ]; then
+        # Get tag version from Torvalds repo
+        tag_version=$(get_tag_version "$upstream_commit")
+        # Insert openEuler header after Subject
+        awk -v TAG="$tag_version" -v COMMIT="$upstream_commit" -v CAT="$PATCH_CATEGORY" -v BZ="$BUGZILLA_ID" '
+          BEGIN { in_sub=0; printed_header=0 }
+          {
+            if (!in_sub) {
+              print $0
+              if ($0 ~ /^Subject:/) { in_sub=1; next }
+            } else if (in_sub && !printed_header) {
+              if ($0 ~ /^$/) {
+                print ""
+                print "mainline inclusion"
+                print "from mainline-" TAG
+                print "commit " COMMIT
+                print "category: " CAT
+                print "bugzilla: https://atomgit.com/openeuler/kernel/issues/" BZ
+                print "CVE: NA"
+                print ""
+                print "Reference: https://github.com/torvalds/linux/commit/" COMMIT
+                print ""
+                print "--------------------------------"
+                print ""
+                printed_header=1
+                next
+              } else {
+                print $0
+                next
+              }
+            } else {
+              print $0
+            }
+          }
+          END {
+            if (in_sub && !printed_header) {
+              print ""
+              print "mainline inclusion"
+              print "from mainline-" TAG
+              print "commit " COMMIT
+              print "category: " CAT
+              print "bugzilla: https://atomgit.com/openeuler/kernel/issues/" BZ
+              print "CVE: NA"
+              print ""
+              print "Reference: https://github.com/torvalds/linux/commit/" COMMIT
+              print ""
+              print "--------------------------------"
+              print ""
+            }
+          }' "${p}" > "${p}.tmp" && mv "${p}.tmp" "${p}"
+      fi
+
+      # Insert Signed-off-by before first '---' (non-KABI patches only)
+      SOB_LINE="Signed-off-by: ${SIGNER_NAME} <${SIGNER_EMAIL}>"
+      if ! grep -qF "${SOB_LINE}" "${p}"; then
+        awk -v SOB="Signed-off-by: ${SIGNER_NAME} <${SIGNER_EMAIL}>" '
+          BEGIN { inserted=0 }
+          {
+            if (!inserted && $0 ~ /^---$/) {
+              print SOB
+              inserted=1
+            }
+            print $0
+          }
+          END {
+            if (!inserted) {
+              print ""
+              print SOB
+            }
+          }' "${p}" > "${p}.tmp" && mv "${p}.tmp" "${p}"
+      fi
     fi
-  fi
-  # Insert Signed-off-by before first '---'
-  SOB_LINE="Signed-off-by: ${SIGNER_NAME} <${SIGNER_EMAIL}>"
-  if ! grep -qF "${SOB_LINE}" "${p}"; then
-  awk -v SOB="Signed-off-by: ${SIGNER_NAME} <${SIGNER_EMAIL}>" '
-    BEGIN { inserted=0 }
-    {
-      if (!inserted && $0 ~ /^---$/) {
-        print SOB
-        inserted=1
-      }
-      print $0
-    }
-    END {
-      if (!inserted) {
-        print ""
-        print SOB
-      }
-    }' "${p}" > "${p}.tmp" && mv "${p}.tmp" "${p}"
-  fi
-done
+  done
+fi
 
 # Ensure repo clean
 if [ -n "$(git status --porcelain)" ]; then
@@ -284,6 +346,16 @@ fi
 
 git config user.name "${SIGNER_NAME}"
 git config user.email "${SIGNER_EMAIL}"
+
+# ── If commits are already applied, skip the patch apply loop entirely ──
+if [ "${SKIP_APPLY}" = true ]; then
+  echo -e "${GREEN}Patches already applied — skipping git am step.${NC}"
+  echo -e "${YELLOW}Proceeding to next process (make test)...${NC}"
+  echo ""
+  echo -e "${GREEN}✓ openEuler build process completed successfully${NC}"
+  echo -e "Run ${YELLOW}'make test'${NC} to execute openEuler-specific tests"
+  exit 0
+fi
 
 # Collect patch filenames in lexical order
 mapfile -t PATCH_LIST < <(ls -1 "${PATCHES_DIR}"/*.patch 2>/dev/null || true)
