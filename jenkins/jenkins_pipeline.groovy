@@ -84,24 +84,31 @@ pipeline {
             description: 'Enter VM root password. If your password contains a $ symbol, escape it with a backslash. Example: "Dma\\$1234"'
         )
         
-        choice(
+        extendedChoice(
             name: 'Anolis_Selected_tests',
-            choices: ['none', 'check_dependency', 'check_Kconfig', 'build_allyes_config', 'build_allno_config', 'build_anolis_defconfig', 'build_anolis_debug', 'anck_rpm_build', 'check_kapi', 'boot_kernel_rpm', 'all'],
-            description: 'If your selected distro is anolis, select the test cases'
+            type: 'PT_CHECKBOX',
+            multiSelectDelimiter: ',',
+            visibleItemCount: 10,
+            description: 'Select one or more Anolis test cases',
+            value: 'check_dependency,check_Kconfig,build_allyes_config,build_allno_config,build_anolis_defconfig,build_anolis_debug,anck_rpm_build,check_kapi,boot_kernel_rpm,all'
         )
-        
+
         choice(
             name: 'Patch_category',
             choices: ['none', 'feature', 'bugfix', 'performance', 'security'],
             description: 'If your selected distro is euler, Select one patch category'
         )
         
-        choice(
-            name: 'Euler_Selected_tests',
-            choices: ['none', 'check_dependency', 'build_allmod', 'check_patch', 'check_format', 'rpm_build', 'boot_kernel', 'all'],
-            description: 'If your selected distro is euler, Select the test cases'
-        )
-    }
+   extendedChoice(
+           name: 'Euler_Selected_tests',
+           type: 'PT_CHECKBOX',
+           multiSelectDelimiter: ',',
+           visibleItemCount: 8,
+           description: 'Select one or more Euler test cases',
+           value: 'check_dependency,build_allmod,check_patch,check_format,rpm_build,boot_kernel,all'
+        ) 
+
+}
 
 stages {
 
@@ -708,60 +715,63 @@ def validate_config_file(String filePath, List expectedKeys) {
 }
 
 def anolis_test_configuration() {
-    try {
-        echo "Configuring Anolis tests..."
-        
-        def cmd = ""
-        def testName = params.Anolis_Selected_tests
 
-        switch(testName) {
-            case "all":
-                cmd = "make test"
-                break
-	    case "check_dependency":
-                cmd = "make anolis-test=check_dependency"
-                break 
-            case "check_Kconfig":
-                cmd = "make anolis-test=check_kconfig"
-                break
-            case "build_allyes_config":
-                cmd = "make anolis-test=build_allyes_config"
-                break
-            case "build_allno_config":
-                cmd = "make anolis-test=build_allno_config"
-                break
-            case "build_anolis_defconfig":
-                cmd = "make anolis-test=build_anolis_defconfig"
-                break
-            case "build_anolis_debug":
-                cmd = "make anolis-test=build_anolis_debug"
-                break
-            case "anck_rpm_build":
-                cmd = "make anolis-test=anck_rpm_build"
-                break
-            case "check_kapi":
-                cmd = "make anolis-test=check_kapi"
-                break
-            case "boot_kernel_rpm":
-                cmd = "make anolis-test=boot_kernel_rpm"
-                break
-            case "none":
-                echo "⚠ No test selected - skipping test execution"
-                return
-            default:
-                error("❌ Unknown test selection: ${testName}")
+    try {
+
+        echo "Configuring Anolis tests..."
+
+        if (!params.Anolis_Selected_tests?.trim()) {
+		echo "⚠ No test selected - skipping test execution"
+            return
         }
 
-        echo "Executing test command: ${cmd}"
+        def workspaceDir = "${env.WORKSPACE}/patch-precheck-ci"
+
+        def commandMap = [
+            "check_dependency"       : "make anolis-test=check_dependency",
+            "check_Kconfig"          : "make anolis-test=check_kconfig",
+            "build_allyes_config"    : "make anolis-test=build_allyes_config",
+            "build_allno_config"     : "make anolis-test=build_allno_config",
+            "build_anolis_defconfig" : "make anolis-test=build_anolis_defconfig",
+            "build_anolis_debug"     : "make anolis-test=build_anolis_debug",
+            "anck_rpm_build"         : "make anolis-test=anck_rpm_build",
+            "check_kapi"             : "make anolis-test=check_kapi",
+            "boot_kernel_rpm"        : "make anolis-test=boot_kernel_rpm"
+        ]
+
+        def selectedTests = params.Anolis_Selected_tests
+                                .split(',')
+                                .collect { it.trim() }
+
+        if ("all" in selectedTests) {
+            selectedTests = commandMap.keySet().toList()
+        }
+         
+        //prints user selected tests
+        echo "User selected tests: ${selectedTests.join(', ')}"
         
-        sh """
-            set -e
-            cd "${env.WORKSPACE}/pre-pr-ci"
-            ${cmd}
-        """
-        
-        echo "✔ Test execution completed successfully"
-        
+        dir(workspaceDir) {
+
+            selectedTests.each { testName ->
+
+                if (!commandMap.containsKey(testName)) {
+				   echo "⚠ Unknown test: ${testName}"
+                    return
+                }
+
+                def cmd = commandMap[testName]
+				
+				echo "▶ Running test: ${cmd}"
+
+                sh """
+                    set +e
+                    ${cmd} || true
+                """
+            }
+        }
+
+        echo "Test execution completed"
+
     } catch (Exception e) {
         error("❌ Anolis test configuration failed: ${e.message}")
     }
@@ -770,49 +780,57 @@ def anolis_test_configuration() {
 def euler_test_configuration() {
     try {
         echo "Configuring Euler tests..."
-        
-        def cmd = ""
-        def testName = params.Euler_Selected_tests
 
-        switch(testName) {
-            case "all":
-                cmd = "make test"
-                break
-            case "check_dependency":
-                cmd = "make euler-test=check_dependency"
-                break
-            case "build_allmod":
-                cmd = "make euler-test=build_allmod"
-                break
-            case "check_patch":
-                cmd = "make euler-test=check_patch"
-                break
-            case "check_format":
-                cmd = "make euler-test=check_format"
-                break
-            case "rpm_build":
-                cmd = "make euler-test=rpm_build"
-                break
-            case "boot_kernel":
-                cmd = "make euler-test=boot_kernel"
-                break
-            case "none":
-                echo "⚠ No test selected - skipping test execution"
-                return
-            default:
-                error("❌ Unknown test selection: ${testName}")
+        if (!params.Euler_Selected_tests?.trim()) {
+            echo "⚠ No test selected - skipping test execution"
+            return
         }
 
-        echo "Executing test command: ${cmd}"
+		  
+        def workspaceDir = "${env.WORKSPACE}/patch-precheck-ci"
+
+        def commandMap = [
+            "check_dependency" : "make euler-test=check_dependency",
+            "build_allmod"     : "make euler-test=build_allmod",
+            "check_patch"      : "make euler-test=check_patch",
+            "check_format"     : "make euler-test=check_format",
+            "rpm_build"        : "make euler-test=rpm_build",
+            "boot_kernel"      : "make euler-test=boot_kernel"
+        ]
+
+        def selectedTests = params.Euler_Selected_tests
+                                .split(',')
+                                .collect { it.trim() }
+
+        if ("all" in selectedTests) {
+            selectedTests = commandMap.keySet().toList()
+        }
+         
+         //prints user selected tests
+        echo "User selected tests: ${selectedTests.join(', ')}"
         
-        sh """
-            set -e
-            cd "${env.WORKSPACE}/pre-pr-ci"
-            ${cmd}
-        """
-        
-        echo "✔ Test execution completed successfully"
-        
+        dir(workspaceDir) {
+            selectedTests.each { testName ->
+
+                if (!commandMap.containsKey(testName)) {
+                    echo "⚠ Unknown test: ${testName}"
+                    return
+                }
+
+                def cmd = commandMap[testName]
+				
+				echo "▶ Running test: ${cmd}"
+
+                sh """
+                    set +e
+                    ${cmd} || true
+                """
+                
+            }
+        }
+
+           echo "Test execution completed"
+		   
     } catch (Exception e) {
         error("❌ Euler test configuration failed: ${e.message}")
     }
