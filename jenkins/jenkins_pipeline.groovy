@@ -728,6 +728,7 @@ def anolis_test_configuration() {
         def workspaceDir = "${env.WORKSPACE}/pre-pr-ci"
 
         def commandMap = [
+            "all"                    : "make test",
             "check_dependency"       : "make anolis-test=check_dependency",
             "check_Kconfig"          : "make anolis-test=check_kconfig",
             "build_allyes_config"    : "make anolis-test=build_allyes_config",
@@ -743,10 +744,6 @@ def anolis_test_configuration() {
                                 .split(',')
                                 .collect { it.trim() }
 
-        if ("all" in selectedTests) {
-            selectedTests = commandMap.keySet().toList()
-        }
-         
         //prints user selected tests
         echo "User selected tests: ${selectedTests.join(', ')}"
         
@@ -788,6 +785,7 @@ def euler_test_configuration() {
         def workspaceDir = "${env.WORKSPACE}/pre-pr-ci"
 
         def commandMap = [
+            "all"              : "make test",
             "check_dependency" : "make euler-test=check_dependency",
             "build_allmod"     : "make euler-test=build_allmod",
             "check_patch"      : "make euler-test=check_patch",
@@ -800,10 +798,6 @@ def euler_test_configuration() {
                                 .split(',')
                                 .collect { it.trim() }
 
-        if ("all" in selectedTests) {
-            selectedTests = commandMap.keySet().toList()
-        }
-         
          //prints user selected tests
         echo "User selected tests: ${selectedTests.join(', ')}"
         
