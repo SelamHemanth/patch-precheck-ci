@@ -69,6 +69,7 @@ list_tests() {
   echo -e "  7. anck_rpm_build          Build ANCK RPM packages"
   echo -e "  8. check_kapi              Check kernel ABI compatibility"
   echo -e "  9. boot_kernel_rpm         Boot VM with built kernel RPM"
+  echo -e "  10. build_perf             Build anolis kernel perf tool"
   echo ""
   echo -e "${BLUE}Usage:${NC}"
   echo "  $0                         - Run all enabled tests"
@@ -208,6 +209,7 @@ sync_torvalds_repo() {
   else
     echo -e "${GREEN}  → Torvalds repository already exists.${NC}"
     echo -e "${BLUE}  → Fetching latest tags...${NC}"
+    git config --global --add safe.directory "$TORVALDS_REPO" 2>/dev/null || true
     if (cd "$TORVALDS_REPO" && git fetch --all --tags 2>&1 | grep -v "^From"); then
       echo -e "${GREEN}  → Repository updated successfully.${NC}"
     else
